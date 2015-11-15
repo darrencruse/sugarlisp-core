@@ -5,7 +5,7 @@ SugarLisp Core is a simple lisp that all SugarLisp "dialects" build upon.
 
 It's the responsibility of all SugarLisp language extension "dialects" to desugar their syntax into the s-expressions supported by SugarLisp Core.
 
-This code grew from (and remains largely compatible with) [http://lispyscript.com](LispyScript)
+This code grew from (and remains largely compatible with) [LispyScript](http://lispyscript.com)
 
 (expect this readme to be greatly expanded soon!)
 
