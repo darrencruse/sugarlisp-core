@@ -1,0 +1,13 @@
+;; with and without the "./"
+;;(var k (require "square.slisp"))
+(var k (require "./square.slisp"))
+
+;; or test .slisp files requiring .js files:
+;;(var k (require "square.js"))
+;;(var k (require "./square.js"))
+
+;; or test omitting .ls extensions:
+;;(var k (require "square"))
+;;(var k (require "./square"))
+
+(console.log (k 10))

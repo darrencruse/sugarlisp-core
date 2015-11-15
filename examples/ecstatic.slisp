@@ -1,0 +1,10 @@
+(var http (require 'http'))
+(var express (require 'express'))
+(var ecstatic (require 'ecstatic'))
+(var app (express))
+(app.use (ecstatic {
+    root: __dirname,
+    gzip: true
+}))
+((http.createServer app).listen 8080)
+(console.log 'Listening on port 8080')

@@ -1,0 +1,6 @@
+
+(set module.exports (function (x y)
+  (- x y)))
+
+(console.log "in subtract");
+

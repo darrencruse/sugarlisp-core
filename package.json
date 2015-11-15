@@ -1,0 +1,34 @@
+{
+  "name": "sugarlisp-core",
+  "description": "sugarlisp core is a simple lisp that all sugarlisp dialects extend from",
+  "keywords": [
+    "sugarlisp",
+    "lispyscript",
+    "lisp",
+    "javascript",
+    "language",
+    "compiler",
+    "transpiler"
+  ],
+  "author": "Darren Cruse",
+  "contributors": ["Santosh Rajan"],
+  "version": "0.5.0",
+  "licenses": [
+    {
+      "type": "MIT",
+      "url": "https://raw.github.com/darrencruse/sugarlisp-core/master/LICENSE"
+    }
+  ],
+  "engines": {
+    "node": ">=0.4.0"
+  },
+  "directories": {
+    "lib": "./lib"
+  },
+  "homepage": "https://github.com/darrencruse/sugarlisp-core",
+  "bugs": "https://github.com/darrencruse/sugarlisp-core/issues",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/darrencruse/sugarlisp-core.git"
+  }
+}

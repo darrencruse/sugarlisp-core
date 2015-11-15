@@ -1,0 +1,199 @@
+;; Some example SugarLisp core dialect code snippets
+
+(var square
+  (function (n)
+    (* n n)))
+(console.log (square 10))
+
+(try
+  (console.log "In try")
+  (throw "In catch")
+  (function (err)
+    (console.log err)))
+
+(if (undefined? window)
+  (console.log "Not Running on browser")
+  (console.log "Running on browser"))
+
+(var arr [1, 2, 3, 4, 5])
+(console.log (get 2 arr))
+
+(if (!== 1 2)
+  (console.log "Nos are not equal"))
+
+(if (object? console)
+  (console.log "console is an object")
+  (console.log "console is not an object"))
+
+(if (array? console)
+  (console.log "console is an array")
+  (console.log "console is not an array"))
+
+;; The example below shows the dangers of using a macro
+(macro square (x)
+  (* ~x ~x))
+(console.log (square 10))
+;; The code above works fine. Now consider the code below
+(var i 2)
+(console.log (square ++i))
+;; Oops you got 12! An embarrassing square of a no. Thats because the macro
+;; expanded to (* ++i ++i) which is multiplying 3 and 4!
+
+(var _ (require 'underscore'))
+(each [1, 2, 3] (function (elem i list) (console.log elem)))
+
+(macro let (args vals ...rest)
+  ((function ~args ~rest) ~@vals))
+
+(let (name email tel) ("John" "john@example.com" "555-555-5556")
+  (console.log name) (console.log email))
+
+(do
+  (console.log "testing do")
+  (console.log "test again"))
+
+(console.log (str "Hello1" " world1"))
+
+;; Above snippets were from LispyScript 1's snippets.ls, here are some additional...
+
+;; arrays
+(var arr (array 1 2 3))
+
+;; empty array
+(var mtarr (array))
+(console.log "empty array is empty:" (empty? mtarr))
+
+;; regular expression
+(var re (regex "[a-zA-Z0-9]"))
+
+;; object literals
+(var obj (object
+  first "fred"
+  last "flintstone"
+  friends (array "barney" "betty")
+  toString (function () (str this.first " " this.last))))
+
+(console.log (obj.toString))
+
+;; simple javascript passthru as a string
+(js "console.log('hello');")
+
+;; test the new keyword
+(var todayDate (new Date))
+(console.log (new Date "October 13, 1975 11:13:00"))
+
+;; a simple switch
+(var dayNum (.getDay todayDate))
+(var dayName (switch dayNum 0 "sun" 1 "mon" 2 "tues" 3 "wed" 4 "thu" 5 "fri" 6 "sat"))
+(console.log dayName)
+
+;; a simple while loop
+;; note the body can be multiple expressions after the condition
+(var wx 5)
+(while (!= wx 0) 
+  --wx
+  (console.log wx))
+
+;; a simple times loop
+(times tx 5 (console.log tx))
+
+/**
+* Now test additional javascript-like syntax sugar
+*/
+
+// arrays
+(var arr [1 2 3])
+(console.log "first is:" (first arr))
+(console.log "rest is:" (rest arr))
+
+// with commas (treated same as white space)
+(var arrComma [1, 2, 3])
+
+// empty array
+(var mtarr2 [])
+(console.log "empty array is empty:" (empty? mtarr2))
+
+;; regular expression (and lispy comments are still supported btw)
+(var re #/[a-zA-Z0-9]/)
+;; and make sure plain / still works right
+(var fn (function (x y) (/ x y)))
+
+// js/json style object literals
+(var obj {
+  first: "fred"
+  last: "flintstone"
+  friends: ["barney","betty"]
+  toString: (function () (str this.first " " this.last))
+})
+
+// with commas
+(var objComma {
+  first: "fred",
+  last: "flintstone",
+  friends: ["barney","betty"],
+  toString: (function () (str this.first " " this.last))
+})
+
+(console.log ((objComma.toString)))
+
+// simple javascript passthru as a string
+(js "console.log('hello');")
+
+// javscript passthru using a template string
+// had trouble with this - the below was a workaround
+(var name "fred")
+(var greeting 'hello ${name}')
+(js "console.log(greeting);")
+
+// test use of "@" for "this"
+(var objAt {
+  first: "fred",
+  last: "flintstone",
+  toString: (function() "${@first} ${@last}"),
+  dump: (function() (console.log (@toString)))
+})
+
+((objAt.dump))
+
+// slashy regexes deserve extra care...
+// (cause they can get mixed up with comments and divide!)
+
+// RIGHT NOW A REGEX LIKE /flint/g MISSES THE "g" ON THE END - NEED TO FIX
+(console.log "fred flintstone contains 'flint':" (.test #/flint/ "fred flintstone"))
+(console.log "fred flintstone contains 'flint':" (#/flint/.test "fred flintstone"))
+
+// here's a line comment before some code
+(console.log (/ 10 5))
+
+/* and another block comment this time on one line */
+(if (.test #/[^\.]+\.[^\.]+/ "filename.ext")
+  (console.log "regex correctly says 'filename.ext' has an extension")
+  (console.log "regex incorrectly says 'filename.ext' has no extension"))
+
+// a simple times loop
+(times x 5 {
+  (console.log x)
+})
+
+// Test of arrow functions
+
+(var arr [1,2,3,4])
+
+(arr.forEach (el) => (console.log el))
+
+// testing lexical this
+(function Ubertest (x) {
+  (set this.x x)
+
+  (function Test (x) {
+    (set this.x x)
+
+    (var arr [1,2,3])
+    (arr.forEach (el) => (console.log this.x el))
+  })
+
+  (var arr ['a','b','c'])
+  (arr.forEach (el) => (new Test "${this.x} ${el}"))
+})
+
+(new Ubertest "Uber")

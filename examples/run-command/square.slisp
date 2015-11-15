@@ -1,0 +1,13 @@
+
+;; with and without the "./"
+;;(var sub (require "subtract.slisp"))
+(var sub (require "./subtract.slisp"))
+
+;; .slisp files requiring .js files:
+;;(var sub (require "subtract.js"))
+;;(var sub (require "./subtract.js"))
+
+(set module.exports (function (x)
+  (sub (* x x) 13)))
+
+(console.log 'in square')

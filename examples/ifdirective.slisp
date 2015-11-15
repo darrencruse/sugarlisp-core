@@ -1,0 +1,25 @@
+// the #if directive is a *compile time* if
+
+// you can use any condition you want
+#if (! (undefined? window))
+  (console.log "transpiled on browser (window object exists)")
+#if (undefined? window)
+  (console.log "transpiled on server (window object doesn't exist")
+
+// but these are automatically provided to make it easy
+#if (=== transpile.on "browser")
+  (console.log "transpiled on browser")
+#if (=== transpile.on "server")
+  (console.log "transpiled on server")
+
+// and these can be specified via the --for command line option
+// e.g. 
+//   "sugar --for=client testIfDirective.slisp"
+// note the "for" names are up to you - you could pass others
+// e.g. "browser" (instead of "client"), "chrome", "native", etc.
+#if (=== transpile.for "client")
+  (console.log "transpiled for client")
+#if (=== transpile.for "server")
+  (console.log "transpiled for server")
+#if (undefined? transpile.for)
+  (console.log "transpile for browser or server not specified")

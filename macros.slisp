@@ -1,0 +1,337 @@
+;; Built in macros for SugarLisp.
+;; Note:  Most of these are the same (or slightly modifed) from LispyScript 1
+
+;;;;;;;;;;;;;;;;;;;; Conditionals ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ (export undefined? (macro (obj)
+  (=== (typeof ~obj) "undefined")))
+
+ (export defined? (macro (obj)
+  (!== (typeof ~obj) "undefined")))
+
+ (export null? (macro (obj)
+  (=== ~obj null)))
+
+ (export nil? (macro (obj)
+  (|| (undefined? ~obj) (null? ~obj))))
+
+ (export true? (macro (obj)
+  (=== true ~obj)))
+
+ (export false? (macro (obj)
+  (=== false ~obj)))
+
+ (export boolean? (macro (obj)
+  (=== (typeof ~obj) "boolean")))
+
+ (export zero? (macro (obj)
+  (=== 0 ~obj)))
+
+ (export number? (macro (obj)
+  (=== (Object.prototype.toString.call ~obj) "[object Number]")))
+
+ (export even? (macro (num)
+  (=== (% ~num 2) 0)))
+
+ (export odd? (macro (num)
+    (!== (% ~num 2) 0)))
+
+ (export string? (macro (obj)
+  (=== (Object.prototype.toString.call ~obj) "[object String]")))
+
+ (export array? (macro (obj)
+  (=== (Object.prototype.toString.call ~obj) "[object Array]")))
+
+ (export object? (macro (obj)
+  (=== (Object.prototype.toString.call ~obj) "[object Object]")))
+
+ (export function? (macro (obj)
+  (=== (Object.prototype.toString.call ~obj) "[object Function]")))
+
+
+;;;;;;;;;;;;;;;;;;;;;;; Expressions ;;;;;;;;;;;;;;;;;;;;
+
+ (export when (macro (cond ...rest)
+  (if ~cond (do ~rest))))
+
+ (export unless (macro (cond ...rest)
+  (when (! ~cond) (do ~rest))))
+
+ (export cond (macro (...rest)
+  (if (#args-shift rest) (#args-shift rest) (#args-if rest (cond ~rest)))))
+
+ (export switch (macro (matchto ...rest)
+  (if (=== ~matchto (#args-shift rest)) (#args-shift rest) (#args-if rest (switch ~matchto ~rest)))))
+
+ (export arrayInit (macro (len obj)
+  ((function (l o)
+    (var ret [])
+    (js "for(var i=0;i<l;i++) ret.push(o);")
+    ret) ~len ~obj)))
+
+ (export arrayInit2d (macro (i j obj)
+  ((function (i j o)
+    (var ret [])
+    (js "for(var n=0;n<i;n++){var inn=[];for(var m=0;m<j;m++) inn.push(o); ret.push(inn);}")
+    ret) ~i ~j ~obj)))
+
+;; method chaining macrofn
+ (export -> (macro (func form ...rest)
+  (#args-if rest
+    (-> (((#args-shift form) ~func) ~@form) ~rest)
+    (((#args-shift form) ~func) ~@form))))
+
+;; alias one symbol name to another
+;; e.g. select one of several "implementation" (to) macros used behind "logical" (from) name
+;; see the sugarlisp-async macros for an example of use
+ (export alias (macro (from to)
+  (macro ~from (...rest) (~to ~(js "ls.list('~','rest')")))))
+
+;;;;;;;;;;;;;;;;;;;;;; Iteration and Looping ;;;;;;;;;;;;;;;;;;;;
+
+ (export each (macro (arr ...rest)
+  (.forEach ~arr ~rest)))
+
+ (export eachPair (macro (arr fn)
+   ((function (___a ___f)
+     (js "for(var ___n=0;___n<___a.length-1;___n+=2){ ___f(___a[___n], ___a[___n+1]); }"))
+     ~arr ~fn)))
+
+ (export reduce (macro (arr ...rest)
+  (.reduce ~arr ~rest)))
+
+ (export eachKey (macro (obj fn ...rest)
+  ((function (o f s)
+    (var _k (Object.keys o))
+    (each _k
+      (function (elem)
+        (f.call s (get elem o) elem o)))) ~obj ~fn ~rest)))
+
+ (export each2d (macro (arr fn)
+  (each ~arr
+    (function (___elem ___i ___oa)
+      (each ___elem
+        (function (___val ___j ___ia)
+          (~fn ___val ___j ___i ___ia ___oa)))))))
+
+ (export map (macro (...rest)
+  (Array.prototype.map.call ~rest)))
+
+ (export filter (macro (...rest)
+  (Array.prototype.filter.call ~rest)))
+
+ (export some (macro (...rest)
+  (Array.prototype.some.call ~rest)))
+
+ (export every (macro (...rest)
+  (Array.prototype.every.call ~rest)))
+
+ (export loop (macro (args vals ...rest)
+  ((function ()
+    (var recur null
+         ___result (! undefined)
+         ___nextArgs null
+         ___f (function ~args ~rest))
+    (set recur
+      (function ()
+        (set ___nextArgs arguments)
+        (if (=== ___result undefined)
+          undefined
+          (do
+            (set ___result undefined)
+            (js "while(___result===undefined) ___result=___f.apply(this,___nextArgs);")
+            ___result))))
+    (recur ~@vals)))))
+
+ (export for (macro (...rest)
+  (doMonad arrayMonad ~rest)))
+
+ (export first (macro (arr)
+  (get 0 ~arr)))
+
+ (export rest (macro (arr)
+  (~arr.slice 1 ~arr.length)))
+
+ (export empty? (macro (arr)
+  (=== 0 ~arr.length)))
+
+;;;;;;;;;;;;;;;;;;;;;; Arithmetic ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+/*
+I DID THIS FOR THE BENEFIT OF "BINDING ASSIGNMENTS" WITH MY HTML example
+BUT ITS BROKEN A SIMPLE USE OF ++ IN THE SNIPPETS.LS example
+THE BELOW TURNS THEM INTO STATEMENTS NOT Expressions
+WHICH WAS A BAD IDEA ANYWAY
+
+ (export "++" (macro (operand)
+  (set ~operand (+ ~operand 1))))
+
+ (export "--" (macro (operand)
+  (set ~operand (- ~operand 1))))
+*/
+
+;;;;;;;;;;;;;;; Reactive Data Binding ;;;;;;;;;;;;;;;;;;;;;
+
+;; binding assignment
+;;  set a value by calling a function after it's argument changes
+(export #aftersetinlinefn (macro (to reactorfn)
+  (#after (set (#args-get 1 ~@reactorfn)) (set ~to (~reactorfn (#args-get 1 ~@reactorfn))))))
+
+;;  set a value by calling a function before it's argument changes
+(export #beforesetinline (macro (to reactorfn)
+  (#before (set (#args-get 1 ~@reactorfn)) (set ~to (~reactorfn (#args-get 1 ~@reactorfn))))))
+
+(export #afterset (macro (to reactorfn)
+  (#after (set (#args-get 1 ~@reactorfn)) (set ~to ~reactorfn))))
+
+;;  set a value by calling a function before it's argument changes
+(export #beforeset (macro (to reactorfn)
+  (#before (set (#args-get 1 ~@reactorfn)) (set ~to ~reactorfn))))
+
+;;;;;;;;;;;;;;;;;;;; Callback Sequence ;;;;;;;;;;;;;;;;;;;;;
+
+ (export sequence (macro (name args init ...rest)
+  (var ~name
+    (function ~args
+      ((function ()
+        ~@init
+        (var next null)
+        (var ___curr -1)
+        (var ___actions [ ~@rest ])
+        (set next
+          (function ()
+            (var ne (get ++___curr ___actions))
+            (if ne
+              ne
+              (throw "Call to (next) beyond sequence."))))
+        (((next)))))))))
+
+;;;;;;;;;;;;;;;;;;;; Templates ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Note we now promote the use of our "html dialect" in lieu of these.
+;; However template-repeat is still used by the testRunner macro below.
+
+ (export template (macro (name args ...rest)
+  (var ~name
+    (function ~args
+      (str ~rest)))))
+
+ (export template-repeat (macro (arg ...rest)
+  (reduce ~arg
+    (function (___memo elem index)
+      (+ ___memo (str ~rest))) "")))
+
+ (export template-repeat-key (macro (obj ...rest)
+  (do
+    (var ___ret "")
+    (eachKey ~obj
+      (function (value key)
+        (set ___ret (+ ___ret (str ~rest)))))
+    ___ret)))
+
+;;;;;;;;;;;;;;;;;;; Unit Testing ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ (export assert (macro (cond message)
+  (if (true? ~cond)
+    (+ "Passed - " ~message)
+    (+ "Failed - " ~message))))
+
+ (export testGroup (macro (name ...rest)
+  (var ~name
+    (function ()
+      (array ~rest)))))
+
+ (export testRunner (macro (groupname desc)
+  ((function (groupname desc)
+    (var start (new Date)
+         tests (groupname)
+         passed 0
+         failed 0)
+    (each tests
+      (function (elem)
+        (if (elem.match #/^Passed/)
+          ++passed
+          ++failed)))
+    (str
+      (str "\n" desc "\n" start "\n\n")
+      (template-repeat tests elem "\n")
+      "\nTotal tests " tests.length
+      "\nPassed " passed
+      "\nFailed " failed
+      "\nDuration " (- (new Date) start) "ms\n")) ~groupname ~desc)))
+
+
+;;;;;;;;;;;;;;;; Monads ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ (export identityMonad (macro ()
+  (object
+    mBind (function (mv mf) (mf mv))
+    mResult (function (v) v))))
+
+ (export maybeMonad (macro ()
+  (object
+    mBind (function (mv mf) (if (null? mv) null (mf mv)))
+    mResult (function (v) v)
+    mZero null)))
+
+ (export arrayMonad (macro ()
+  (object
+    mBind (function (mv mf)
+              (reduce
+                (map mv mf)
+                (function (accum val) (accum.concat val))
+                []))
+    mResult (function (v) [v])
+    mZero []
+    mPlus (function ()
+              (reduce
+                (Array.prototype.slice.call arguments)
+                (function (accum val) (accum.concat val))
+                [])))))
+
+ (export stateMonad (macro ()
+  (object
+    mBind (function (mv f)
+              (function (s)
+                (var l (mv s)
+                     v (get 0 l)
+                     ss (get 1 l))
+                ((f v) ss)))
+    mResult (function (v) (function (s) [v, s])))))
+
+ (export continuationMonad (macro ()
+  (object
+    mBind (function (mv mf)
+              (function (c)
+                (mv
+                  (function (v)
+                    ((mf v) c)))))
+    mResult (function (v)
+                (function (c)
+                  (c v))))))
+
+ (export m-bind (macro (bindings expr)
+  (mBind (#args-second bindings)
+    (function ((#args-shift bindings))
+      (#args-if bindings (m-bind ~bindings ~expr) ((function () ~expr)))))))
+
+ (export withMonad (macro (monad ...rest)
+  ((function (___monad)
+    (var mBind ___monad.mBind
+         mResult ___monad.mResult
+         mZero ___monad.mZero
+         mPlus ___monad.mPlus)
+    ~rest) (~monad))))
+
+ (export doMonad (macro (monad bindings expr)
+  (withMonad ~monad
+    (var ____mResult
+      (function (___arg)
+        (if (&& (undefined? ___arg) (! (undefined? mZero)))
+          mZero
+          (mResult ___arg))))
+    (m-bind ~bindings (____mResult ~expr)))))
+
+ (export monad (macro (name obj)
+  (var ~name
+    (function ()
+      ~obj))))
