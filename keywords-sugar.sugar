@@ -63,7 +63,7 @@ export "new" function {
   default @error("missing class name for new operator?");
 }
 
-// this version of while when used with {}
+// this version of while when used with "do" or {}
 // wraps it's body in an IIFE.
 // This is a problem for the csp stuff because you
 // can't put yield statements in an IIFE because it's

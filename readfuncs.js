@@ -3,22 +3,26 @@ var sl = require('sugarlisp-core/types'),
 
 /**
 * read a list of atoms and/or other lists surrounded by delimiters (), [], etc.
-* into is an optional array containing the initial values
+* start is the expected opening delimiter as a string (or an existing start token
+* if the opening delimiter has already been read)
+* end is the expected end delimiter as a string
+* initial is an optional array containing values prepopulated in the list
 * separatorRE is an optional RE for "separators" to be skipped e.g. /,/
 */
 exports.read_delimited_list = function(source, start, end, initial, separatorRE) {
     start = start || '(';
     end = end || ')';
     separatorRE = separatorRE || /,+/g;
-    var startToken = source.next_token(start);
+    var startToken = (start && typeof start === 'string' ? source.next_token(start) : start);
 
     var list = (initial && sl.isList(initial) ? initial : sl.listFromArray(initial || []));
     list.setOpening(startToken);
+
     // starting a new list
     delete source.lastReadFormInList;
     var token;
     while (!source.eos() && (token = source.peek_token()) && token && token.text !== end) {
-      var nextform = reader.read(source, {firstPosition: list.length === 0});
+      var nextform = reader.read(source);
 
       // some "directives" don't return an actual form:
       if(!reader.isignorableform(nextform)) {
