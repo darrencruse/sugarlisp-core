@@ -5,11 +5,7 @@
 ;; Based on javascript version here http://www.jsdares.com/
 ;;
 
-(macro $ (id)
-  (document.getElementById ~id))
-
-(macro $listener (domObj eventName ...rest)
-  (~domObj.addEventListener ~eventName (event) => ~rest))
+#include "dom-macros.slisp"
 
 (var canvas null)
 (var context null)
