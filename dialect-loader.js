@@ -23,7 +23,7 @@ require("sugarlisp-match/matchexpr");
 //require("sugarlisp-html");
 //require("sugarlisp-css");
 //require("sugarlisp-async");
-//require("sugarlisp-sugarscript");
+require("sugarlisp-sugarscript");
 //require("sugarlisp-statements");
 
 /**
