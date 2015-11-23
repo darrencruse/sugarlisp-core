@@ -1,9 +1,15 @@
 ;; Some example SugarLisp core dialect code snippets
 
-(var square
-  (function (n)
-    (* n n)))
+(console.log (str "Hello1" " World1"))
+
+;; a simple anonymous function
+(var square (function (n)
+  (* n n)))
 (console.log (square 10))
+
+;; a simple named function
+(function myadd (x, y)
+  (+ x y))
 
 (try
   (console.log "In try")
@@ -15,15 +21,20 @@
   (console.log "Not Running on browser")
   (console.log "Running on browser"))
 
-(var arr [1, 2, 3, 4, 5])
-(console.log (get 2 arr))
-
 (if (!== 1 2)
   (console.log "Nos are not equal"))
 
 (if (object? console)
   (console.log "console is an object")
   (console.log "console is not an object"))
+
+;; arrays
+(var arr (array 1 2 3 4 5))
+(console.log (get 2 arr))
+
+;; empty array
+(var mtarr (array))
+(console.log "empty array is empty:" (empty? mtarr))
 
 (if (array? console)
   (console.log "console is an array")
@@ -32,15 +43,15 @@
 ;; The example below shows the dangers of using a macro
 (macro square (x)
   (* ~x ~x))
+
 (console.log (square 10))
+
 ;; The code above works fine. Now consider the code below
 (var i 2)
 (console.log (square ++i))
+
 ;; Oops you got 12! An embarrassing square of a no. Thats because the macro
 ;; expanded to (* ++i ++i) which is multiplying 3 and 4!
-
-(var _ (require 'underscore'))
-(each [1, 2, 3] (function (elem i list) (console.log elem)))
 
 (macro let (args vals ...rest)
   ((function ~args ~rest) ~@vals))
@@ -49,19 +60,14 @@
   (console.log name) (console.log email))
 
 (do
-  (console.log "testing do")
-  (console.log "test again"))
+  (console.log "do first expr")
+  (console.log "do second expr"))
 
-(console.log (str "Hello1" " world1"))
-
-;; Above snippets were from LispyScript 1's snippets.ls, here are some additional...
-
-;; arrays
-(var arr (array 1 2 3))
-
-;; empty array
-(var mtarr (array))
-(console.log "empty array is empty:" (empty? mtarr))
+;; {} is also an alias for "do"
+{
+  (console.log "curly do first expr")
+  (console.log "curly do second expr")
+}
 
 ;; regular expression
 (var re (regex "[a-zA-Z0-9]"))
@@ -76,7 +82,7 @@
 (console.log (obj.toString))
 
 ;; simple javascript passthru as a string
-(js "console.log('hello');")
+(js "console.log('hello from js string');")
 
 ;; test the new keyword
 (var todayDate (new Date))
@@ -88,17 +94,22 @@
 (console.log dayName)
 
 ;; a simple while loop
-;; note the body can be multiple expressions after the condition
+;; note the while body must be a single expression after the condition
+;; so we wrap it in a "do"
+(console.log 'a while loop with it\'s body wrapped in "do"...');
 (var wx 5)
-(while (!= wx 0) 
+(while (!= wx 0) (do
   --wx
-  (console.log wx))
+  (console.log wx)))
 
 ;; a simple times loop
-(times tx 5 (console.log tx))
+(console.log 'a 4 "times" loop...');
+(times tx 4 (console.log tx))
+
+(each [1, 2, 3] (function (elem i list) (console.log elem)))
 
 /**
-* Now test additional javascript-like syntax sugar
+* Examples of more javascript-like syntax sugar
 */
 
 // arrays
@@ -170,7 +181,15 @@
   (console.log "regex correctly says 'filename.ext' has an extension")
   (console.log "regex incorrectly says 'filename.ext' has no extension"))
 
-// a simple times loop
+// curly's work the same as "do"
+(console.log 'a while loop with it\'s body wrapped in {}...');
+(var wy 3)
+(while (!= wy 0) {
+  --wy
+  (console.log wy)
+})
+
+// also a times loop (likewise using {})
 (times x 5 {
   (console.log x)
 })
