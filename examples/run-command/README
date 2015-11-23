@@ -10,7 +10,7 @@ This (boring) example is really just a test that this sugar -r command works in 
 
 To run it you simply do:
 
-  sugar -r run.ls
+  sugar -r run.slisp
 
 The different "require" scenarios can be tested by uncommenting some of the requires
 in the .slisp files here, along with using "sugar <file>" to compile .js files
