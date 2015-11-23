@@ -390,9 +390,9 @@ exports["object"] = function(forms) {
     return transpiled;
 }
 
-exports["include"] = function(forms) {
+exports["#include"] = function(forms) {
     if (forms.length != 2)  {
-      forms.error("\"include\" expects a single file name");
+      forms.error("\"#include\" expects a single file name");
     }
     var filename = sl.stripQuotes(sl.valueOf(forms[1]));
 
@@ -485,7 +485,6 @@ exports["do"] = function(forms) {
 // generates the code for each expression without
 // wrapping the result in an IIFE (as "do" does)
 exports["begin"] = function(forms) {
-console.log("BEGIN")
     forms.shift(); // get rid of "begin"
     //forms[1].noReturn = true;
     return this.transpileExpressions(forms);
