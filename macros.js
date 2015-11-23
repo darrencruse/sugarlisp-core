@@ -220,7 +220,7 @@ exports["alias"] = function(forms) {
       ["...rest"],
       [
         ["~", "to"],
-        ["~", ["js", "\"ls.list('~','rest')\""]]
+        ["~", ["js", "\"sl.list('~','rest')\""]]
       ]
     ]
   ];
@@ -439,6 +439,7 @@ exports["sequence"] = function(forms) {
       ["function", ["~", "args"],
         [
           ["function", [],
+            ["#args-erase-head", "init"],
             ["~@", "init"],
             ["var", "next", null],
             ["var", "___curr", -1],

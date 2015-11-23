@@ -85,7 +85,7 @@
 ;; e.g. select one of several "implementation" (to) macros used behind "logical" (from) name
 ;; see the sugarlisp-async macros for an example of use
  (export alias (macro (from to)
-  (macro ~from (...rest) (~to ~(js "ls.list('~','rest')")))))
+  (macro ~from (...rest) (~to ~(js "sl.list('~','rest')")))))
 
 ;;;;;;;;;;;;;;;;;;;;;; Iteration and Looping ;;;;;;;;;;;;;;;;;;;;
 
@@ -194,6 +194,7 @@ WHICH WAS A BAD IDEA ANYWAY
   (var ~name
     (function ~args
       ((function ()
+        (#args-erase-head init)
         ~@init
         (var next null)
         (var ___curr -1)
