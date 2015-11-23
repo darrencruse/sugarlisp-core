@@ -80,8 +80,18 @@ function read(source, precedence) {
 
     // we only keep scanning if we're hitting *higher* precedence
     if((opSpec.precedence || 0) <= precedence) {
+      trace("read of infix/postfix stopping because op precedence " + (opSpec.precedence || 0) +
+            " is <= the current precendence of " + precedence);
       break; // stop scanning
     }
+
+// DELETE MAYBE NOT NEEDED?
+    // beforeRead is an optional function that can be used to apply
+    // custom logic to conditionally stop the reading if desired.
+    // if(opSpec.options && opSpec.options.beforeRead &&
+    //   isretryablematch(opSpec.options.beforeRead(source, opSpec, leftForm))) {
+    //     break; // do *not* treat this as an infix/postix operator
+    // }
 
     token = source.next_token();
     leftForm = opSpec.read(source, opSpec, leftForm, sl.atom(token));
@@ -485,7 +495,7 @@ function read_include_file(filename, source) {
         // this was a javascript file just return the code as a string
         return code;
       }
-      // this was a sugar file transform the code to lispy forms
+      // this was a sugar file - transform the code to lispy forms
       includedForms = read_from_source(code, filename, {wrapOuterForm: true, includeFile: true});
     }
   }
@@ -1084,7 +1094,7 @@ function applyTreeTransforms(forms) {
 }
 
 /**
-* get the "transform spec" for the form (if any).
+* get the "operator spec" for the form (if any).
 * this is an object of the form e.g.
 *   {
 *     type: infix,
