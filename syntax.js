@@ -114,9 +114,8 @@ exports["#keyword"] = function(source) {
 // #if is for conditional code generation
 exports['#if'] = reader.parenfree(2, "#if");
 
-// #include is just an alternative to lispyscript 1's
-// original (include...), which remains available as well.
-exports['#include'] = reader.parenfree(1, "include");
+// #include is an alternative to lispyscript 1's original (include...)
+exports['#include'] = reader.parenfree(1);
 
 // #require is for requiring a module at read time (as opposed
 // to run time).  It uses the require path as opposed to
@@ -486,6 +485,7 @@ exports['~@'] = function(source) {
 }
 */
 
+// note below are higher precedence than '.'
 exports['~'] = reader.prefix(19.5);
 exports['~@'] = reader.prefix(19.5);
 
