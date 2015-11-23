@@ -7,5 +7,5 @@ app.use(ecstatic({
   root: __dirname,
   gzip: true
 }));
-http.createServer(app).listen(8080);
-console.log('Listening on port 8080');
+http.createServer(app).listen(3000);
+console.log('Listening on port 3000');
