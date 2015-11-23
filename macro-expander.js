@@ -2,7 +2,7 @@
  * SugarLisp Macro Expander
  */
 
-var isArgsExpr = /^#args-if\b|^#args-shift\b|^#args-second\b|^#args-get\b/,
+var isArgsExpr = /^#args-if\b|^#args-shift\b|^#args-erase-head\b|^#args-rest\b|^#args-second\b|^#args-get\b/,
   sl = require('./types'),
   reader = require('./reader'),
   src = require('./source'),
@@ -203,6 +203,23 @@ function replaceArgsExpr(ctx, forms, expansioncode, replacements, isrestarg) {
       expansioncode[1].error('can\'t #args-shift: invalid number of arguments to "' + macroname + '"');
     }
     return spliceArgsExprResult(isSplice, argshift);
+  }
+  if (expr_name === "#args-erase-head") {
+    if (!Array.isArray(replarray)) {
+      expansioncode[1].error('can\'t #args-rest: invalid argument type in "' + macroname + '"');
+    }
+    replacements[marker] = replarray.splice(1, replarray.length);
+    return undefined;
+  }
+  if (expr_name === "#args-rest") {
+    if (!Array.isArray(replarray)) {
+      expansioncode[1].error('can\'t #args-rest: invalid argument type in "' + macroname + '"');
+    }
+    var argsrest = replarray.splice(1, replarray.length);
+    if (typeof argsrest === "undefined") {
+      expansioncode[1].error('can\'t #args-rest: invalid number of arguments to "' + macroname + '"');
+    }
+    return spliceArgsExprResult(isSplice, argsrest);
   }
   if (expr_name === "#args-second") {
     if (!Array.isArray(replarray)) {
