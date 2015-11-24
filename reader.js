@@ -8,9 +8,28 @@ var src = require('./source'),
   utils = require('./utils'),
   ctx = require('./transpiler-context'),
   filetypes = require('./filetypes'),
-  include_dirs = [__dirname + "/../../includes", "../includes", "includes", __dirname + "/../../node_modules"],
   fs,
   path;
+
+var include_dirs = [
+  ".",
+  "..",
+  "../..",
+  "../../..",
+  "../../../..",
+  "../../../../..",
+  "../../../../../..",
+  "node_modules",
+  "../node_modules",
+  "../../node_modules",
+  __dirname + "/../node_modules",
+  __dirname + "/../../node_modules",
+  "includes",
+  "../includes",
+  "../../includes",
+  __dirname + "/../includes",
+  __dirname + "/../../includes"
+];
 
 var debug = require('debug')('sugarlisp:core:reader:info'),
   trace = require('debug')('sugarlisp:core:reader:trace'),
@@ -463,13 +482,16 @@ function read_include_file(filename, source) {
   var all_dirs = include_dirs.concat([path.dirname(source.filename)]);
   all_dirs = all_dirs.concat([path.dirname(filename)]);
 
+  var fullPath;
   all_dirs.forEach(function(prefix) {
     if (foundFile) {
       return;
     }
 
+    fullPath = prefix + '/' + filename;
     try {
-      filename = fs.realpathSync(prefix + '/' + filename)
+      trace("looking for include file at " + fullPath);
+      filename = fs.realpathSync(fullPath);
       foundFile = true;
     } catch (err) {
       // not found - intentional ignore
@@ -479,6 +501,7 @@ function read_include_file(filename, source) {
   if (!foundFile) {
     source.error('No such include file: ' + filename);
   }
+  trace("the include file was found at " + fullPath);
 
   // assuming we've gotten the source we're reading into...
   if(source) {

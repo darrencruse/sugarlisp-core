@@ -1,0 +1,39 @@
+;;
+;; here's dnode's standard "beepboop" example
+;; the only thing different here is everything's in one file.
+;;
+;; this gets split into client and server using compile time #if
+;; directives selected using sugar's "--for" option (see
+;; make-dnode-std.sh).
+;;
+
+(var dnode (require 'dnode'))
+
+#if (=== transpile.for "server") {
+
+  (var remote {
+     transform: (s, cb) => {
+       (console.log "I got beeped!")
+       ; we return null,result to match the node err,data callback style
+       ; (the async macros expect this style)
+       (cb null ((.toUpperCase (s.replace #/[aeiou]{2,}/ 'oo'))))
+     }
+  })
+
+  (var server (dnode remote))
+  (server.listen 5004)
+  (console.log "Listening for beeps...")
+}
+
+#if (=== transpile.for "client") {
+
+  (var d (dnode.connect 5004))
+  (d.on 'remote' (remote) => {
+    (remote.transform 'beep' (err, s) => {
+      (if err
+        (console.log 'an error occurred ${err}')
+        (console.log 'beep goes ${s}'))
+      (d.end)
+    })
+  })
+}

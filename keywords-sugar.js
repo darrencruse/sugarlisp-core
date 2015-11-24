@@ -2,112 +2,106 @@
 var sl = require('sugarlisp-core/types');
 var match = require('sugarlisp-match/pattern-match');
 exports["."] = function(forms) {
-  return (function() {
-    this.transpileSubExpressions(forms);
+  this.transpileSubExpressions(forms);
 
-    return match(forms, function(when) {
-      when([
-          function(sym) {
-            return sym.value === ".";
-          },
-          match.var("object", match.any),
-          match.var("property", match.any)
-        ],
-        function(vars) {
-          return (function(object, property) {
-            return sl.transpiled([
-              object, ".", property
-            ]);
-          }).call(this, vars["object"], vars["property"]);
-        }, this);
-      when([
-          match.var("any", match.sldefault)
-        ],
-        function(vars) {
-          return (function(any) {
-            return this.error('The dot (.) requires an object and a property');
-          }).call(this, vars["any"]);
-        }, this);
-    }, this);
-  }).call(this);
+  return match(forms, function(when) {
+    when([
+        function(sym) {
+          return sym.value === ".";
+        },
+        match.var("object", match.any),
+        match.var("property", match.any)
+      ],
+      function(vars) {
+        return (function(object, property) {
+          return sl.transpiled([
+            object, ".", property
+          ]);
+        }).call(this, vars["object"], vars["property"]);
+      }, this);
+    when([
+        match.var("any", match.sldefault)
+      ],
+      function(vars) {
+        return (function(any) {
+          return this.error('The dot (.) requires an object and a property');
+        }).call(this, vars["any"]);
+      }, this);
+  }, this);
 };
 exports["dotprop"] = function(forms) {
-  return (function() {
-    this.transpileSubExpressions(forms);
+  this.transpileSubExpressions(forms);
 
-    return match(forms, function(when) {
-      when([
-          function(sym) {
-            return sym.value === "dotprop";
-          },
-          match.var("property", match.any),
-          match.var("object", match.any)
-        ],
-        function(vars) {
-          return (function(property, object) {
-            return sl.transpiled([
-              object, ".", property
-            ]);
-          }).call(this, vars["property"], vars["object"]);
-        }, this);
-      when([
-          match.var("any", match.sldefault)
-        ],
-        function(vars) {
-          return (function(any) {
-            return this.error('A dot property (.propname) requires an object');
-          }).call(this, vars["any"]);
-        }, this);
-    }, this);
-  }).call(this);
+  return match(forms, function(when) {
+    when([
+        function(sym) {
+          return sym.value === "dotprop";
+        },
+        match.var("property", match.any),
+        match.var("object", match.any)
+      ],
+      function(vars) {
+        return (function(property, object) {
+          return sl.transpiled([
+            object, ".", property
+          ]);
+        }).call(this, vars["property"], vars["object"]);
+      }, this);
+    when([
+        match.var("any", match.sldefault)
+      ],
+      function(vars) {
+        return (function(any) {
+          return this.error('A dot property (.propname) requires an object');
+        }).call(this, vars["any"]);
+      }, this);
+  }, this);
 };
 exports["if"] = function(forms) {
-  return (function() {
-    this.transpileSubExpressions(forms);
+  this.transpileSubExpressions(forms);
 
-    return match(forms, function(when) {
-      when([
-          function(sym) {
-            return sym.value === "if";
-          },
-          match.var("condition", match.any),
-          match.var("iftrue", match.any),
-          match.var("iffalse", match.any)
-        ],
-        function(vars) {
-          return (function(condition, iftrue, iffalse) {
-            return sl.transpiled([
-              "(", condition, " ?\n",
-              "    ", iftrue, " :\n",
-              "    ", iffalse, ")"
-            ]);
-          }).call(this, vars["condition"], vars["iftrue"], vars["iffalse"]);
-        }, this);
-      when([
-          function(sym) {
-            return sym.value === "if";
-          },
-          match.var("condition", match.any),
-          match.var("iftrue", match.any)
-        ],
-        function(vars) {
-          return (function(condition, iftrue) {
-            return sl.transpiled([
-              "(", condition, " ?\n",
-              "    ", iftrue, " : undefined )"
-            ]);
-          }).call(this, vars["condition"], vars["iftrue"]);
-        }, this);
-      when([
-          match.var("any", match.sldefault)
-        ],
-        function(vars) {
-          return (function(any) {
-            return this.error('if expects a condition followed by one (for "then") or two (for "else") body expressions');
-          }).call(this, vars["any"]);
-        }, this);
-    }, this);
-  }).call(this);
+  return match(forms, function(when) {
+    when([
+        function(sym) {
+          return sym.value === "if";
+        },
+        match.var("condition", match.any),
+        match.var("iftrue", match.any),
+        match.var("iffalse", match.any)
+      ],
+      function(vars) {
+        return (function(condition, iftrue, iffalse) {
+          return sl.transpiled([
+            "(", condition, " ?\n",
+            "    ", iftrue, " :\n",
+            "    ", iffalse, ")"
+          ]);
+        }).call(this, vars["condition"], vars["iftrue"], vars["iffalse"]);
+      }, this);
+    when([
+        function(sym) {
+          return sym.value === "if";
+        },
+        match.var("condition", match.any),
+        match.var("iftrue", match.any)
+      ],
+      function(vars) {
+        return (function(condition, iftrue) {
+          return sl.transpiled([
+            "(", condition, " ?\n",
+            "    ", iftrue, " : undefined )"
+          ]);
+        }).call(this, vars["condition"], vars["iftrue"]);
+      }, this);
+    when([
+        match.var("any", match.sldefault)
+      ],
+      function(vars) {
+        return (function(any) {
+          return this.error('if expects a condition followed by one (for "then") or two (for "else") body expressions');
+        }).call(this, vars["any"]);
+      }, this);
+  }, this);
 };
 
 exports["new"] = function() {

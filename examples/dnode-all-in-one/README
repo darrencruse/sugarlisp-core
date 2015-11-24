@@ -1,0 +1,5 @@
+
+Note as of Nov 23, 2015 there appears to be a problem running dnode under node v5.0.0
+
+This example does run fine under node v4.0.0 however.
+ 

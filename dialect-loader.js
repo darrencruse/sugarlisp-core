@@ -20,11 +20,11 @@
 require("sugarlisp-core");
 require("sugarlisp-match");
 require("sugarlisp-match/matchexpr");
-//require("sugarlisp-html");
+require("sugarlisp-html");
 //require("sugarlisp-css");
-//require("sugarlisp-async");
+require("sugarlisp-async");
 require("sugarlisp-sugarscript");
-//require("sugarlisp-statements");
+require("sugarlisp-statements");
 
 /**
 * load the specified dialect for use in a sugar source file.

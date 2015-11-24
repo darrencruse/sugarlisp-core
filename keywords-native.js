@@ -236,10 +236,10 @@ exports["try"] = function(forms) {
 * a condition followed by a single code expression to be transpiled or not.
 * it does not support an "else" (negate your condition with a second #if when
 * you need an "else")
-* TBD IS THE QUESTION OF  AND SOURCE MAPS
+* TBD IS THE QUESTION OF SOURCE MAPS
 * I.E. CAN SOURCE MAPS MAP TO THE FILE WITH THESE SECTIONS COLLAPSED AWAY?
 * TO DO THAT IMPLIES I'VE ADJUSTED THE LINE NUMBERS
-* (FOR THAT MATTER THEY CAN USE  TO ELIMINATE JUST PART OF A LINE TOO)
+* (FOR THAT MATTER THEY CAN BE USED TO ELIMINATE JUST PART OF A LINE TOO)
 * MAYBE SIMPLER WILL BE TO JUST BLANK OUT THE CODE NOT PASSED
 * THRU, THEN LINE AND COLUMN NUMBERS DON'T HAVE TO BE ADJUSTED, EVEN IF IT
 * LOOKS A LITTLE FUNNY.  MAYBE PART OF THE ANSWER IS TO DO WHAT I'M DOING NOW
@@ -255,7 +255,20 @@ exports["#if"] = function(forms) {
     var condcode = cond.toString();
     var condPassed = this.evalJavascript(condcode);
     trace("#if", condcode, (condPassed ? "passed" : "failed"));
-    var code = (condPassed ? forms[2] : reader.ignorable_form);
+    if(!condPassed) {
+      return reader.ignorable_form;
+    }
+
+    var code = forms[2];
+
+    // the brackets used to delimit a multi-line #if should *not* get an IIFE
+    if(sl.isList(code) && code.length > 0 &&
+      sl.typeOf(code[0]) === 'symbol' && code[0].value === "do")
+    {
+        code[0].value = "begin";
+        code[0].text = "begin";
+    }
+
     return (sl.isList(code) ? this.transpileExpression(code) : code);
 }
 

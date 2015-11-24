@@ -1,4 +1,5 @@
 // the #if directive is a *compile time* if
+// see dnode-all-in-one for an example of how you might use it.
 
 // you can use any condition you want
 #if (! (undefined? window))
