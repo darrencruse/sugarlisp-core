@@ -84,7 +84,7 @@ Source.prototype.next_char = function(len) {
   while(len > 0 && this.position < this.text.length) {
     // we remember the last character read for doing "look back"
     this.lastChar = this.text[this.position];
-    trace("char:", this.lastChar, "line:", this.line, "col:", this.col);
+    //trace("char:", this.lastChar, "line:", this.line, "col:", this.col);
     text += this.lastChar;
     this.position++;
     this.col++;

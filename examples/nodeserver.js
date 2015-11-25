@@ -8,5 +8,5 @@ var server = http.createServer(function(request, response) {
   return response.end("Hello World\n");
 });
 
-server.listen(3000, "127.0.0.1");
-console.log("Server running at http://127.0.0.1:3000/");
+server.listen(3000, "localhost");
+console.log("Server running at http://localhost:3000/");

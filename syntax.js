@@ -112,7 +112,7 @@ exports["#keyword"] = function(source) {
 }
 
 // #if is for conditional code generation
-exports['#if'] = reader.parenfree(2, "#if");
+exports['#if'] = reader.parenfree(2, {alternate:"#if"});
 
 // #include is an alternative to lispyscript 1's original (include...)
 exports['#include'] = reader.parenfree(1);
@@ -120,7 +120,7 @@ exports['#include'] = reader.parenfree(1);
 // #require is for requiring a module at read time (as opposed
 // to run time).  It uses the require path as opposed to
 // lispy's separate include path.
-exports['#require'] = reader.parenfree(1, "#require");
+exports['#require'] = reader.parenfree(1, {alternate:"#require"});
 
 exports["null"] = function(source) {
   return sl.atom(null, {token: source.next_token("null")});

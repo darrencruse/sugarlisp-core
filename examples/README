@@ -60,13 +60,21 @@ Then to run an example hit it from your browser e.g.:
 
     http://localhost:3000/runinbrowser/index.html
 
-(if "browser-bundle.js" isn't found, make sure you started your web server from "examples").
+If "browser-bundle.js" isn't found, make sure:
+a.  That you started your web server from "examples".
+b.  That the sugarlisp-browser-bundle.js and sugarlisp-browser-bundle-min.js.gz file exists there.
 
-Additional note to sugarlisp developers:
+For mac and linux users the checked-in browser bundle files are linked under the examples directory.
 
-  The checked-in lib/browser-bundle.js file is linked under the examples directory.
+For windows users (where github has trouble reproducing links) you should (at least once) do:
 
-  You can rebuild the new browser-bundle.js file using e.g. "npm run prepublish".
+  sugar -b
+
+To create the browser bundle files in the examples directory.
+
+Note to developers:
+
+  You can rebuild new browser bundle files using e.g. "npm run prepublish".
 
 * Trying the in-browser REPL
 

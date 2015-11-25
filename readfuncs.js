@@ -9,81 +9,16 @@ var sl = require('sugarlisp-core/types'),
 * initial is an optional array containing values prepopulated in the list
 * separatorRE is an optional RE for "separators" to be skipped e.g. /,/
 */
+// WE HAVE MOVED READ_DELIMITED_LIST INTO THE READER
+// THIS IS TEMPORARILY STILL HERE...  BUT SHOULD GET REMOVED
 exports.read_delimited_list = function(source, start, end, initial, separatorRE) {
-    start = start || '(';
-    end = end || ')';
-    separatorRE = separatorRE || /,+/g;
-    var startToken = (start && typeof start === 'string' ? source.next_token(start) : start);
-
-    var list = (initial && sl.isList(initial) ? initial : sl.listFromArray(initial || []));
-    list.setOpening(startToken);
-
-    // starting a new list
-    delete source.lastReadFormInList;
-    var token;
-    while (!source.eos() && (token = source.peek_token()) && token && token.text !== end) {
-      var nextform = reader.read(source);
-
-      // some "directives" don't return an actual form:
-      if(!reader.isignorableform(nextform)) {
-        list.push(nextform);
-      }
-
-      // if they gave a separator (e.g. commas)
-      if(separatorRE && source.on(separatorRE)) {
-        source.skip_text(separatorRE); // just skip it
-      }
-    }
-    if (!token || source.eos()) {
-        source.error("Missing \"" + end + "\" ?  (expected \"" + end + "\", got EOF)", startToken);
-    }
-    var endToken = source.next_token(end); // skip the end token
-    list.setClosing(endToken);
-
-// IF THIS IS HERE IT HAS TO BE SMARTER - IT WAS ELIMINATING THE TOP LEVEL PAREN wrapper
-// (AROUND THE WHOLE FILE) AND CAUSING PROBLEMS
-// WOULDNT IT ALSO ELIMINATE A NO-ARG CALL?  SOMETHING LIKE (obj.run) ?
-    // we can get extra parens when e.g. the user used parens around
-    // an infix expression (which the reader reads as a nested list)
-    // if(list.length === 1 && sl.isList(list[0])) {
-    //   list = list[0];
-    // }
-
-    // in a lispy file they use parens whereas paren-free in a scripty file
-    if(list.length === 1 && sl.isList(list[0])
-      && list[0].__parenoptional && source.fileext === 'lispy')
-    {
-      // so here we have to *remove* what's otherwise *extra* parens:
-      list = list[0];
-    }
-
-// THIS CONDITION SEEMINGLY BROKE THE ABILITY TO USE PARENS TO CHANGE
-// THE PRECEDENCE OF OPERATIONS - E.G. THIS BROKE WITH THE BELOW
-//   (x = getit()) !== 'good'
-// it generated:
-//   (x = getit() !== 'good');
-// which because of javascript precedence levels is interpreted wrong like:
-//   (x = (getit() !== 'good'));
-// commented it generates:
-//
-/*
-    else if(list.length === 1 && sl.isList(list[0]) &&
-            list[0].length === 3 && list[0][0].__wasinfix) {
-      // the infix-to-prefix conversion done by the reader is paren-free
-      // this condition means they used parens anyway - splice it into our list
-      var infixlist = list.shift();
-      list = infixlist.concat(list);
-    }
-*/
-    source.lastReadList = list;
-
-    return list;
+    return reader.read_delimited_list(source, start, end, initial, separatorRE);
 }
 
 // read square bracketed array of data
 // (square brackets are an alternative to quoting)
 exports.read_array = function(source) {
-  return exports.read_delimited_list(source, '[', ']', ["array"]);
+  return reader.read_delimited_list(source, '[', ']', ["array"]);
 }
 
 /**
@@ -361,8 +296,8 @@ exports.read_objectliteral_or_codeblock = function(source) {
     if(e.message.indexOf("ambiguous") !== -1) {
       // maybe this is a code block?
       source.rewind();
-      list = exports.read_delimited_list(source, '{', '}', ["do"]);
-//      list = exports.read_delimited_list(source, '{', '}', ["begin"]);
+      list = reader.read_delimited_list(source, '{', '}', ["do"]);
+//      list = reader.read_delimited_list(source, '{', '}', ["begin"]);
       if(sl.list(list) && list.length === 1) {
         // this was actually just and empty {}
         list[0].value = "object";

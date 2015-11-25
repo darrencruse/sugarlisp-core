@@ -621,7 +621,6 @@ function use_dialect(dialectName, source, options) {
     (typeof options.filelevel === 'undefined' || options.filelevel) &&
     !options.reload)
   {
-console.log("RETURNING EARLY " + dialectName + " IS ALREADY LOADED");
     // but otherwise just give back the previously loaded dialect
     return alreadyLoadedDialect;
   }
@@ -673,8 +672,8 @@ console.log("RETURNING EARLY " + dialectName + " IS ALREADY LOADED");
   //   the paren-free features of "scripty".  These are sometimes
   //   causing trouble in lispy core files - at least for now
   //   it seems better to just require they fully "#use" *all*
-  //   dependent dialects in .sl files.
-  if(source.fileext !== 'sl' && dialect.extends) {
+  //   dependent dialects in .slisp files.
+  if(source.fileext !== 'slisp' && dialect.extends) {
     var extendsArr = (Array.isArray(dialect.extends) ?
                         dialect.extends : [dialect.extends]);
     extendsArr.forEach(function(dependentDialectName) {
@@ -686,16 +685,23 @@ console.log("RETURNING EARLY " + dialectName + " IS ALREADY LOADED");
   dialect.syntax = dialect.syntax || {};
   dialect.keywords = dialect.keywords || {};
 
-  // handlers in the keyword table may have no special
-  // (custom) syntax - in that case enter such keywords
-  // in the syntax table for them (so they don't have to)
   dialect.keywords = dialect.keywords || {};
-  Object.keys(dialect.keywords).forEach(function(keyword) {
-    if(!dialect.syntax[keyword] && keyword !== initfnkey) {
-      trace("entering keyword symbol omitted from syntax table:", keyword);
-      dialect.syntax[keyword] = symbol;
-    }
-  });
+
+  // in core only - handlers in the keyword table may
+  // have no special (custom) syntax - in that case enter
+  // such keywords in the syntax table as symbols (so they
+  // don't have to entered there manually).
+  // note: this was originally done for *all* the dialects,
+  //   but it was leading to "masking" of lower level
+  //   dialect's syntax entries.
+  if(dialectName === 'core') {
+    Object.keys(dialect.keywords).forEach(function(keyword) {
+      if(!dialect.syntax[keyword] && keyword !== initfnkey) {
+        trace("entering keyword symbol omitted from syntax table:", keyword);
+        dialect.syntax[keyword] = symbol;
+      }
+    });
+  }
 
   // now mark the syntax and keyword handlers so that
   // after merging we still know which dialect they
@@ -1461,19 +1467,24 @@ function postfix2prefix(source, opSpec, leftForm, opForm) {
 }
 
 /**
-* reader.parenfree<N> = a parens-free function call of arity <N>
-* alternate is an optional name for the function to call (i.e. the
-* the name looked up in the dialect's "keywords" table), if the
-* function to call is different than what they actually use in
-* the source code.
+* reader.parenfree<N> = a parens-free keyword of arity <N>
+* options is an optional object containing:
+*   "alternate" is a name to look up in the dialect's "keywords"
+*       table, if it differs from the keyword they actually use
+*       in the source code.
+*   "parenthesizedFirst" is a true/false flag which is meant for
+*       use with keywords such as if/while/switch/etc. which (in
+*       javascript and sugarscript syntax) *require* parens around
+*       the first expression following the keyword.
 *
-* note: this creates a form list the same as if they'd entered parens
-*       explicitly.
+* @returns a form list just the same as if they'd entered parens
+*       explicitly as a true lispy s-expression.
 */
-function parenfree(arity, alternate) {
+function parenfree(arity, options) {
+  options = options || {};
   return function(source) {
     var token = source.next_token();
-    var fnName = alternate || token.text;
+    var fnName = options.alternate || token.text;
     var formlist = sl.list(fnName);
     formlist.setOpening(token);
 
@@ -1481,7 +1492,14 @@ function parenfree(arity, alternate) {
     // position - since there *is* no closing paren!
     var count = arity;
     while(count > 0) {
-      var nextform = read(source);
+      var nextform;
+      if(count === arity && options.parenthesizedFirst) {
+        nextform = read_wrapped_delimited_list(source, '(', ')');
+      }
+      else {
+        nextform = read(source);
+      }
+
       // some directives" don't return an actual form:
       if(!isignorableform(nextform)) {
         formlist.push(nextform);
@@ -1497,6 +1515,109 @@ function parenfree(arity, alternate) {
     return formlist;
   }
 };
+
+/**
+* read a list of atoms and/or other lists surrounded by delimiters (), [], etc.
+* start is the expected opening delimiter as a string (or an existing start token
+* if the opening delimiter has already been read)
+* end is the expected end delimiter as a string
+* initial is an optional array containing values prepopulated in the list
+* separatorRE is an optional RE for "separators" to be skipped e.g. /,/
+*/
+function read_delimited_list(source, start, end, initial, separatorRE) {
+    start = start || '(';
+    end = end || ')';
+    separatorRE = separatorRE || /,+/g;
+    var startToken = (start && typeof start === 'string' ? source.next_token(start) : start);
+
+    var list = (initial && sl.isList(initial) ? initial : sl.listFromArray(initial || []));
+    list.setOpening(startToken);
+
+    // starting a new list
+    delete source.lastReadFormInList;
+    var token;
+    while (!source.eos() && (token = source.peek_token()) && token && token.text !== end) {
+      var nextform = read(source);
+
+      // some "directives" don't return an actual form:
+      if(!isignorableform(nextform)) {
+        list.push(nextform);
+      }
+
+      // if they gave a separator (e.g. commas)
+      if(separatorRE && source.on(separatorRE)) {
+        source.skip_text(separatorRE); // just skip it
+      }
+    }
+    if (!token || source.eos()) {
+        source.error("Missing \"" + end + "\" ?  (expected \"" + end + "\", got EOF)", startToken);
+    }
+    var endToken = source.next_token(end); // skip the end token
+    list.setClosing(endToken);
+
+// IF THIS IS HERE IT HAS TO BE SMARTER - IT WAS ELIMINATING THE TOP LEVEL PAREN wrapper
+// (AROUND THE WHOLE FILE) AND CAUSING PROBLEMS
+// WOULDNT IT ALSO ELIMINATE A NO-ARG CALL?  SOMETHING LIKE (obj.run) ?
+    // we can get extra parens when e.g. the user used parens around
+    // an infix expression (which the reader reads as a nested list)
+    // if(list.length === 1 && sl.isList(list[0])) {
+    //   list = list[0];
+    // }
+
+    // in a lispy file they use parens whereas paren-free in a scripty file
+    if(list.length === 1 && sl.isList(list[0])
+      && list[0].__parenoptional && source.fileext === 'lispy')
+    {
+      // so here we have to *remove* what's otherwise *extra* parens:
+      list = list[0];
+    }
+
+// THIS CONDITION SEEMINGLY BROKE THE ABILITY TO USE PARENS TO CHANGE
+// THE PRECEDENCE OF OPERATIONS - E.G. THIS BROKE WITH THE BELOW
+//   (x = getit()) !== 'good'
+// it generated:
+//   (x = getit() !== 'good');
+// which because of javascript precedence levels is interpreted wrong like:
+//   (x = (getit() !== 'good'));
+// commented it generates:
+//
+/*
+    else if(list.length === 1 && sl.isList(list[0]) &&
+            list[0].length === 3 && list[0][0].__wasinfix) {
+      // the infix-to-prefix conversion done by the reader is paren-free
+      // this condition means they used parens anyway - splice it into our list
+      var infixlist = list.shift();
+      list = infixlist.concat(list);
+    }
+*/
+    source.lastReadList = list;
+
+    return list;
+}
+
+/**
+* in javascript certain parens e.g. around conditions for "if" and
+* "while" etc. are *required* as part of the grammar.  This function
+* accommodates that by "reaching inside" those parens when they wouldn't
+* (in a lispy world) have been needed, or otherwise returns the
+* s-expression normally.  Consider e.g.:
+*   if(true) {...}
+* versus
+*   if(x > y) {...}
+* in the first case we simply return the atom true, whereas in the second
+* case the list (> x y).
+*/
+function read_wrapped_delimited_list(source, start, end, initial, separatorRE) {
+
+  var list = read_delimited_list(source, start, end, initial, separatorRE);
+  if(list.length === 1) // DEL? &&
+// DEL?    (sl.isList(list[0]) || sl.typeOf(list[0]) === 'boolean'))
+  {
+      // there's an extra nesting level than needed:
+      list = list[0];
+  }
+  return list;
+}
 
 /**
 * Reader function to translate binary infix (e.g. "a + b") to prefix (i.e. "+ a b")
@@ -1658,6 +1779,8 @@ function finddeep(forms, predicatefn, pos, container, parentDialect) {
 exports.read = read;
 exports.read_from_source = read_from_source;
 exports.read_include_file = read_include_file;
+exports.read_delimited_list = read_delimited_list;
+exports.read_wrapped_delimited_list = read_wrapped_delimited_list;
 
 // dialects
 exports.get_current_dialect = get_current_dialect;
