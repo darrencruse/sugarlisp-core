@@ -38,9 +38,9 @@
   (context.clearRect 0 0 canvas.width canvas.height))
 
 (function circle(x y)
-  ((context.beginPath))
+  (context.beginPath)
   (context.arc x y 10 0 (* 2 Math.PI))
-  ((context.fill)))
+  (context.fill))
 
 (function drawPaddle ()
   (var x (- paddleX (/ paddleWidth 2)))
@@ -50,7 +50,7 @@
 (function drawBricks ()
   (each2d bricks
     (function (val x y arr)
-      (if val
+      (if? val
         (do
           (var xpos (+ (* x brickWidth) (/ brickMargin 2)))
           (var ypos (+ (* y brickHeight) (/ brickMargin 2)))
@@ -60,29 +60,34 @@
 
 (function hitHorizontal ()
   (if (|| (< ballX 0) (> ballX canvas.width))
-    (set ballVx (- ballVx))))
+    (set ballVx -ballVx)))
 
 (function hitVertical ()
-  (cond
-    (< ballY 0) (do (set ballVy (- ballVy)) true)
-    (< ballY (* brickHeight bricksNumY))
-      (do
+  (if (< ballY 0)
+    (set ballVy -ballVy)
+    (if (< ballY (* brickHeight bricksNumY))
+      {
         (var bx (Math.floor (/ ballX brickWidth)))
         (var by (Math.floor (/ ballY brickHeight)))
         (if (&& (>= bx 0) (< bx bricksNumX))
           (if (get bx (get by bricks))
-            (do
+            {
               (set bx (get by bricks) false)
-              (set ballVy (- ballVy)))))
-        true)
-    (>= ballY (- canvas.height paddleHeight))
-      (do
-        (var paddleLeft (- paddleX (/ paddleWidth 2)))
-        (var paddleRight (+ paddleX (/ paddleWidth 2)))
-        (if (&& (>= ballX paddleLeft) (<= ballX paddleRight))
-          (do (set ballVy (- ballVy)) true)
-          (do (init) false)))
-    true true))
+              (set ballVy -ballVy)
+            }))
+      }
+      (if (>= ballY (- canvas.height paddleHeight))
+        {
+          (var paddleLeft (- paddleX (/ paddleWidth 2)))
+          (var paddleRight (+ paddleX (/ paddleWidth 2)))
+          (if (&& (>= ballX paddleLeft) (<= ballX paddleRight))
+            (set ballVy -ballVy)
+            {
+              (init)
+              (return false)
+            })
+        })))
+  (return true))
 
 (function tick ()
   (clear)
@@ -90,11 +95,11 @@
   (set ballX (+ ballX ballVx))
   (set ballY (+ ballY ballVy))
   (hitHorizontal)
-  (if (hitVertical)
-    (do
-      (circle ballX ballY)
-      (drawBricks))
-    (clear)))
+  (if (hitVertical) {
+     (circle ballX ballY)
+     (drawBricks)
+   }
+   (clear)))
 
 (set window.onload (function (event)
   (set canvas ($ "breakout"))

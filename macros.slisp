@@ -1,5 +1,5 @@
 ;; Built in macros for SugarLisp.
-;; Note:  Most of these are the same (or slightly modifed) from LispyScript 1
+;; Note:  Many of these are the same (or slightly modifed) from LispyScript 1
 
 ;;;;;;;;;;;;;;;;;;;; Conditionals ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -52,16 +52,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;; Expressions ;;;;;;;;;;;;;;;;;;;;
 
  (export when (macro (cond ...rest)
-  (if ~cond (do ~rest))))
+  (if? ~cond (do ~rest))))
 
  (export unless (macro (cond ...rest)
   (when (! ~cond) (do ~rest))))
 
  (export cond (macro (...rest)
-  (if (#args-shift rest) (#args-shift rest) (#args-if rest (cond ~rest)))))
+  (if? (#args-shift rest) (#args-shift rest) (#args-if rest (cond ~rest)))))
 
- (export switch (macro (matchto ...rest)
-  (if (=== ~matchto (#args-shift rest)) (#args-shift rest) (#args-if rest (switch ~matchto ~rest)))))
+ (export case (macro (matchto ...rest)
+  (if? (=== ~matchto (#args-shift rest)) (#args-shift rest) (#args-if rest (case ~matchto ~rest)))))
 
  (export arrayInit (macro (len obj)
   ((function (l o)
@@ -75,15 +75,15 @@
     (js "for(var n=0;n<i;n++){var inn=[];for(var m=0;m<j;m++) inn.push(o); ret.push(inn);}")
     ret) ~i ~j ~obj)))
 
-;; method chaining macrofn
+ ;; method chaining macrofn
  (export -> (macro (func form ...rest)
   (#args-if rest
     (-> (((#args-shift form) ~func) ~@form) ~rest)
     (((#args-shift form) ~func) ~@form))))
 
-;; alias one symbol name to another
-;; e.g. select one of several "implementation" (to) macros used behind "logical" (from) name
-;; see the sugarlisp-async macros for an example of use
+ ;; alias one symbol name to another
+ ;; e.g. select one of several "implementation" (to) macros used behind "logical" (from) name
+ ;; see the sugarlisp-async macros for an example of use
  (export alias (macro (from to)
   (macro ~from (...rest) (~to ~(js "sl.list('~','rest')")))))
 
@@ -135,7 +135,7 @@
     (set recur
       (function ()
         (set ___nextArgs arguments)
-        (if (=== ___result undefined)
+        (if? (=== ___result undefined)
           undefined
           (do
             (set ___result undefined)
@@ -143,7 +143,9 @@
             ___result))))
     (recur ~@vals)))))
 
- (export for (macro (...rest)
+ // the list comprehenson for'
+ // note "for" is a plain for loop, whereas for' is a comprehension
+ (export for' (macro (...rest)
   (doMonad arrayMonad ~rest)))
 
  (export first (macro (arr)
@@ -202,7 +204,7 @@ WHICH WAS A BAD IDEA ANYWAY
         (set next
           (function ()
             (var ne (get ++___curr ___actions))
-            (if ne
+            (if? ne
               ne
               (throw "Call to (next) beyond sequence."))))
         (((next)))))))))
@@ -232,7 +234,7 @@ WHICH WAS A BAD IDEA ANYWAY
 ;;;;;;;;;;;;;;;;;;; Unit Testing ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
  (export assert (macro (cond message)
-  (if (true? ~cond)
+  (if? (true? ~cond)
     (+ "Passed - " ~message)
     (+ "Failed - " ~message))))
 
@@ -249,7 +251,7 @@ WHICH WAS A BAD IDEA ANYWAY
          failed 0)
     (each tests
       (function (elem)
-        (if (elem.match #/^Passed/)
+        (if? (elem.match #/^Passed/)
           ++passed
           ++failed)))
     (str
@@ -270,7 +272,7 @@ WHICH WAS A BAD IDEA ANYWAY
 
  (export maybeMonad (macro ()
   (object
-    mBind (function (mv mf) (if (null? mv) null (mf mv)))
+    mBind (function (mv mf) (if? (null? mv) null (mf mv)))
     mResult (function (v) v)
     mZero null)))
 
@@ -327,7 +329,7 @@ WHICH WAS A BAD IDEA ANYWAY
   (withMonad ~monad
     (var ____mResult
       (function (___arg)
-        (if (&& (undefined? ___arg) (! (undefined? mZero)))
+        (if? (&& (undefined? ___arg) (! (undefined? mZero)))
           mZero
           (mResult ___arg))))
     (m-bind ~bindings (____mResult ~expr)))))

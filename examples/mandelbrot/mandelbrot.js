@@ -6,37 +6,32 @@ canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
 
 function mandelbrot(r, i, maxIter) {
-  return (function() {
-    var iter = 0;
-    var zr = r;
-    var zi = i;
-    var zr_sq = (r * r);
-    var zi_sq = (i * i);
-    var loop = 1;
-    var lr = 0;
-    var li = 0;
-    while (((!((iter === maxIter) || ((lr === zr) && (li === zi)) || (4 <= (zr_sq + zi_sq)))))) {
-      (function() {
-        ++iter;
-        ((loop === iter) ?
-          (function() {
-            lr = zr;
-            li = zi;
-            return (loop += loop);
-          })() : undefined);
-        zr_sq = (zr * zr);
-        zi_sq = (zi * zi);
-        (zi *= zr);
-        (zi += zi);
-        (zi += i);
-        zr = (zr_sq - zi_sq);
-        return (zr += r);
-      })()
+  var iter = 0;
+  var zr = r;
+  var zi = i;
+  var zr_sq = (r * r);
+  var zi_sq = (i * i);
+  var loop = 1;
+  var lr = 0;
+  var li = 0;
+  while (((!((iter === maxIter) || ((lr === zr) && (li === zi)) || (4 <= (zr_sq + zi_sq)))))) {
+    ++iter;
+    if ((loop === iter)) {
+      lr = zr;
+      li = zi;
+      (loop += loop);
     };
-    return (((iter === maxIter) || ((lr === zr) && (li === zi))) ?
-      null :
-      iter);
-  })();
+    zr_sq = (zr * zr);
+    zi_sq = (zi * zi);
+    (zi *= zr);
+    (zi += zi);
+    (zi += i);
+    zr = (zr_sq - zi_sq);
+    (zr += r);
+  };
+  return (((iter === maxIter) || ((lr === zr) && (li === zi))) ?
+    null :
+    iter);
 }
 
 function color(n) {
@@ -74,48 +69,42 @@ function half(x) {
 function draw() {
   for (var r = 0; r < canvas.width; r++) {
     for (var i = 0; i < canvas.height; i++) {
-      (function() {
-        var calc = mandelbrot((((params.range * r) / canvas.width) + half(-params.range) + params.r), (((params.range * i) / canvas.height) + half(-params.range) + params.i), params.maxIter);
-        ctx.fillStyle = color(calc);
-        return ctx.fillRect(r, i, 1, 1);
-      })()
-    }
+      var calc = mandelbrot((((params.range * r) / canvas.width) + half(-params.range) + params.r), (((params.range * i) / canvas.height) + half(-params.range) + params.i), params.maxIter);
+      ctx.fillStyle = color(calc);
+      ctx.fillRect(r, i, 1, 1);
+    };
   };
 }
 
 draw();
 
 document.addEventListener("keyup", function(e) {
-  return ((e.keyCode === 81) ?
-    (function() {
+  switch (e.keyCode) {
+    case 81:
       (params.range *= (2 / 3));
       ++params.maxIter;
-      return draw();
-    })() :
-    ((e.keyCode === 87) ?
-      (function() {
-        (params.i -= (params.range / 3));
-        return draw();
-      })() :
-      ((e.keyCode === 69) ?
-        (function() {
-          (params.range *= (3 / 2));
-          --params.maxIter;
-          return draw();
-        })() :
-        ((e.keyCode === 65) ?
-          (function() {
-            (params.r -= (params.range / 3));
-            return draw();
-          })() :
-          ((e.keyCode === 83) ?
-            (function() {
-              (params.i += (params.range / 3));
-              return draw();
-            })() :
-            ((e.keyCode === 68) ?
-              (function() {
-                (params.r += (params.range / 3));
-                return draw();
-              })() : undefined))))));
+      draw();
+      break;
+    case 87:
+      (params.i -= (params.range / 3));
+      draw();
+      break;
+    case 69:
+      (params.range *= (3 / 2));
+      --params.maxIter;
+      draw();
+      break;
+    case 65:
+      (params.r -= (params.range / 3));
+      draw();
+      break;
+    case 83:
+      (params.i += (params.range / 3));
+      draw();
+      break;
+    case 68:
+      (params.r += (params.range / 3));
+      draw();
+      break;
+  };
 });

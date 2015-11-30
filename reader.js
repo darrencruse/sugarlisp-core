@@ -33,8 +33,7 @@ var include_dirs = [
 
 var debug = require('debug')('sugarlisp:core:reader:info'),
   trace = require('debug')('sugarlisp:core:reader:trace'),
-  //lsinfo = function() { console.log.apply(this, arguments); };
-  lsinfo = require('debug')('sugarlisp:info');
+  slinfo = require('debug')('sugarlisp:info');
 
 // these node modules unavailable/unused in the browser
 // note: reliably determining where we're running is complicated
@@ -627,8 +626,12 @@ function use_dialect(dialectName, source, options) {
 
   // note there's some circular dependency issues if dialect-loader
   // was loaded at the top of this reader.js file - but that doesn't happen here
-  lsinfo('using dialect:', dialectName);
+  slinfo('using dialect:', dialectName);
   var dialect = options.preloaded || require('./dialect-loader').load(dialectName);
+// TEMPORARY HACK TO GET ATOM PREVIEW WORKING?
+//console.log('skipping dialect-loader doing straight require of sugarlisp-' + dialectName);
+//  var dialect = options.preloaded || require('sugarlisp-' + dialectName);
+
 
   // they can specify (optional) init functions at the
   // dialect or the syntax/keyword levels - the naming is like
@@ -638,7 +641,7 @@ function use_dialect(dialectName, source, options) {
   if(alreadyLoadedDialect &&
     typeof options.filelevel !== 'undefined' && !options.filelevel)
   {
-    lsinfo('cloning local dialect from an already loaded one:', dialectName);
+    slinfo('cloning local dialect from an already loaded one:', dialectName);
 
     // this is a local dialect not a file level dialect
     // so make sure they have a clone of the dialect object
@@ -1076,6 +1079,8 @@ function symbol(source, text) {
 *
 * note:  this function assumes parents have been set on all operator's forms
 */
+/*
+OBSOLETE CAN BE DELETED
 function applyTreeTransforms(forms) {
   // cull a list of just the infix and unary operators from the form tree
   var opspecs = [];
@@ -1121,6 +1126,7 @@ function applyTreeTransforms(forms) {
 
   return forms;
 }
+*/
 
 /**
 * get the "operator spec" for the form (if any).
@@ -1262,6 +1268,8 @@ function infix(precedence, opts) {
 * A tree transformer that translates binary infix operators (e.g. "a + b")
 * to prefix form (i.e. "(+ a b)")
 */
+/*
+OLD DELETE
 function infix2prefixOld(infixOpForm, opts, container) {
   opts = opts || {};
   var altprefix = opts.altinfixprefix || opts.altprefix;
@@ -1317,6 +1325,7 @@ function infix2prefixOld(infixOpForm, opts, container) {
                       " requires 2 arguments");
   }
 }
+*/
 
 function infix2prefix(source, opSpec, leftForm, opForm) {
   // To handle right-associative operators like "^", we allow a slightly
@@ -1472,10 +1481,22 @@ function postfix2prefix(source, opSpec, leftForm, opForm) {
 *   "alternate" is a name to look up in the dialect's "keywords"
 *       table, if it differs from the keyword they actually use
 *       in the source code.
-*   "parenthesizedFirst" is a true/false flag which is meant for
-*       use with keywords such as if/while/switch/etc. which (in
-*       javascript and sugarscript syntax) *require* parens around
-*       the first expression following the keyword.
+*   "parenthesized" is meant for use with keywords such as
+*       if/while/switch/etc. which (in javascript and sugarscript
+*       syntax) *require* parens around the first expression
+*       following the keyword.  It's value should be a number
+*       representing the position of the parenthesized expression
+*       (e.g. "first expression" = 1)
+*   "bracketed" is meant for use with keywords such as
+*       if/while/switch/etc. which (in javascript and sugarscript
+*       syntax) have optional "{...}" brackets around the body.
+*       It's value should be a number representing the position
+*       of the bracketed expression (e.g. "second expression" = 2)
+*       When used the bracketed expressions are "lifted" up i.e.
+*       spliced into the parent list of forms.
+*   "validate" an optional function to call after the forms are
+*       read.  The function receives the source, and the newly
+*       read list of forms.
 *
 * @returns a form list just the same as if they'd entered parens
 *       explicitly as a true lispy s-expression.
@@ -1488,23 +1509,32 @@ function parenfree(arity, options) {
     var formlist = sl.list(fnName);
     formlist.setOpening(token);
 
-    // note we don't set the closing token's line/col
-    // position - since there *is* no closing paren!
-    var count = arity;
-    while(count > 0) {
+    while(formlist.length < arity + 1) {
       var nextform;
-      if(count === arity && options.parenthesizedFirst) {
+      if(options.parenthesized && options.parenthesized === formlist.length) {
+        // "wrapped" here because something like (true) returns simply "true"
         nextform = read_wrapped_delimited_list(source, '(', ')');
+      }
+      // note brackets are *optional* if there's a single expression body
+      else if(options.bracketed && options.bracketed === formlist.length
+        && source.on('{'))
+      {
+        nextform = read_delimited_list(source, '{', '}');
+        formlist.pushFromArray(nextform);
+        nextform = undefined;  // we've added the forms so no need to below
       }
       else {
         nextform = read(source);
       }
 
       // some directives" don't return an actual form:
-      if(!isignorableform(nextform)) {
+      if(nextform && !isignorableform(nextform)) {
         formlist.push(nextform);
       }
-      count--;
+    }
+
+    if(options.validate) {
+      options.validate(source, formlist);
     }
 
     // this list was read paren free!
@@ -1512,6 +1542,8 @@ function parenfree(arity, options) {
     //   hacker and used parens *anyway*)
     formlist.__parenoptional = true;
 
+    // note we don't set the closing token's line/col
+    // position - since there *is* no closing paren!
     return formlist;
   }
 };
@@ -1790,7 +1822,7 @@ exports.get_closest_scoped_dialect_for = get_closest_scoped_dialect_for;
 exports.get_syntaxtable_entry = get_syntaxtable_entry;
 exports.unexpected = unexpected;
 exports.symbol = symbol;
-exports.applyTreeTransforms = applyTreeTransforms;
+// DELETE exports.applyTreeTransforms = applyTreeTransforms;
 exports.operator = operator;
 exports.infix = infix;
 exports.infix2prefix = infix2prefix;

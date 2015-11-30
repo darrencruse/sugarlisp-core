@@ -112,7 +112,7 @@ exports["#keyword"] = function(source) {
 }
 
 // #if is for conditional code generation
-exports['#if'] = reader.parenfree(2, {alternate:"#if"});
+exports['#if'] = reader.parenfree(2, {parenthesized: 1, bracketed: 2});
 
 // #include is an alternative to lispyscript 1's original (include...)
 exports['#include'] = reader.parenfree(1);
@@ -120,7 +120,7 @@ exports['#include'] = reader.parenfree(1);
 // #require is for requiring a module at read time (as opposed
 // to run time).  It uses the require path as opposed to
 // lispy's separate include path.
-exports['#require'] = reader.parenfree(1, {alternate:"#require"});
+exports['#require'] = reader.parenfree(1);
 
 exports["null"] = function(source) {
   return sl.atom(null, {token: source.next_token("null")});
@@ -182,13 +182,24 @@ exports['.'] = function(source) {
 
 exports['.'] = reader.operator({
   prefix: reader.operator('prefix', 'unary', dotpropexpr, 5),
-  infix: reader.infix(19)
+  infix: reader.operator('infix', 'binary', infixdot2prefix, 19)
 });
 
 function dotpropexpr(source, opSpec, dotOpForm) {
   var propertyNameToken = source.next_token();
   var objectForm = reader.read(source, opSpec.precedence);
   return sl.list('dotprop', propertyNameToken, objectForm);
+}
+
+function infixdot2prefix(source, opSpec, leftForm, opForm) {
+  // To handle right-associative operators like "^", we allow a slightly
+  // lower precedence when parsing the right-hand side. This will let an
+  // operator with the same precedence appear on the right, which will then
+  // take *this* operator's result as its left-hand argument.
+  var rightForm = reader.read(source,
+      opSpec.precedence - (opSpec.assoc === "right" ? 1 : 0));
+
+  return sl.list(opForm, leftForm, rightForm);
 }
 
 /**
@@ -205,6 +216,8 @@ function dotpropexpr(source, opSpec, dotOpForm) {
 *   to use infix dot instead i.e. (console.log ~error.message) is absolutely
 *   fine in sugarlisp.
 */
+/*
+THIS IS OBSOLETE CAN BE DELETED
 function dotptransform(dotpropAtom) {
   var containingList = dotpropAtom.parent;
   if(containingList.length !== 3) {
@@ -223,7 +236,7 @@ function dotptransform(dotpropAtom) {
     }
   }
 }
-
+*/
 // DELETE exports['.'] = reader.infix(1);
 
 // ellipses are used in macros and match patterns to match the "rest"
@@ -237,7 +250,7 @@ exports['...'] = function(source) {
 
 // parenthesized list expressions
 exports['('] = function(source) {
-  return rfuncs.read_delimited_list(source);
+  return reader.read_delimited_list(source);
 };
 // read_delimited_list consumes the ending ")"
 // so we don't expect it to be read thru the syntax table
@@ -296,77 +309,11 @@ function arrow2prefix(source, opSpec, argsForm, arrowOpForm) {
   return sl.list(arrowOpForm, argsForm, fBody);
 }
 
-/*
-DELETE
-function(source, text) {
-  var arrowToken = source.next_token(text);
-  return sl.atom(text, {token: arrowToken, transform: {
-            type: 'binary',
-            fn: arrowFnTransform,
-            precedence: 12.5
-          }});
-}
-reader.registerDynamicTransform('binary', exports['.']);
-*/
-
-/*
-OLD
-function arrowFnTransform(arrowAtom, transformopts) {
-  var containingList = arrowAtom.parent;
-  var listPos = containingList.indexOf(arrowAtom);
-  if(listPos + 1 < containingList.length) {
-    var rhs = containingList[listPos + 1];
-    if(sl.isList(rhs) && sl.valueOf(rhs[0]) === 'do') {
-      rhs[0].value = "begin";
-    }
-  }
-  else {
-    arrowAtom.error("arrow function missing right hand side");
-  }
-  return reader.infix2prefix(arrowAtom, transformopts);
-}
-*/
-
-// disambiguate / for div versus regexes
-// see .e.g.
-//   http://stackoverflow.com/questions/5519596/when-parsing-javascript-what-determines-the-meaning-of-a-slash
-/*
-DELETE
-exports['/'] = function(source, text) {
-
-  var slashyregex = function(source) {
-    var matched;
-    // note the "last token" chars are those used by jslint
-console.log("IN SLASHYREGEX lastToken is:", source.lastToken.text);
-    if (source.on("/") && (source.lastToken &&
-        "(,=:[!&|?{};".indexOf(source.lastToken.text) !== -1))
-    {
-      matched = source.peek_delimited_token("/");
-      if(matched) {
-        matched = matched.text;
-      }
-    }
-    return matched;
-  };
-
-  if(slashyregex(source)) {
-    // desugar to core (regex ..)
-    return sl.list("regex",
-                  sl.addQuotes(sl.valueOf(rfuncs.read_delimited_text(source, "/", "/",
-                    {includeDelimiters: false}))));
-  }
-  else {
-    // this was just a plain old '/' by itself
-    return reader.symbol(source, text);
-  }
-}
-*/
-
 // regexes in the form #/../
 // this is a shorthand for (regex "(regex string)")
 // note this is close to javascript's "/" regexes except for starting "#/"
 // the initial "#" was added to avoid conflicts with "/"
-// (the "#" is optional in scripty btw)
+// (the "#" is optional in *sugarscript* btw)
 exports['#/'] = function(source, text) {
   // desugar to core (regex ..)
   return sl.list("regex",
@@ -412,14 +359,14 @@ exports['@'] = function(source) {
 // should just use '(...)' or "(...)" instead.
 //
 exports['`('] = function(source) {
-  return rfuncs.read_delimited_list(source, '`(', ')`', ["quasiquote"]);
+  return reader.read_delimited_list(source, '`(', ')`', ["quasiquote"]);
 };
 exports[')`'] = reader.unexpected
 
 // this may be temporary it's just an alias for arrays []
 // (it should be just a normal quoted list - working on that)
 exports['``('] = function(source) {
-  return rfuncs.read_delimited_list(source, '``(', ')``', ["array"]);
+  return reader.read_delimited_list(source, '``(', ')``', ["array"]);
 };
 exports[')``'] = reader.unexpected
 
@@ -437,7 +384,7 @@ exports['"""'] = function(source) {
 // a lispy code template (lispy code with substitutions) is
 // surrounded in triple single-quotes
 exports["'''"] = function(source) {
-  return rfuncs.read_delimited_list(source, "'''", "'''", ["codequasiquote"]);
+  return reader.read_delimited_list(source, "'''", "'''", ["codequasiquote"]);
 };
 
 // Gave unquotes an extra ~ for now while I get them working
@@ -484,6 +431,13 @@ exports['~@'] = function(source) {
   return sl.list(sl.atom(splicingUnquoteToken), reader.read(source));
 }
 */
+
+// if? is the if expression (like a javascript ternary)
+// note: unlike lisp, in sugarlisp plain "if" is a *statement*
+exports['if?'] = reader.symbol;
+
+// for' is a list comprehension
+exports["for'"] = reader.symbol;
 
 // note below are higher precedence than '.'
 exports['~'] = reader.prefix(19.5);

@@ -1,5 +1,7 @@
-var sl = require('sugarlisp-core/types'),
-    reader = require('sugarlisp-core/reader');
+var sl = require('./types'),
+    reader = require('./reader'),
+    debug = require('debug')('sugarlisp:core:readfuncs:info'),
+    slinfo = require('debug')('sugarlisp:info');
 
 /**
 * read a list of atoms and/or other lists surrounded by delimiters (), [], etc.
@@ -11,9 +13,9 @@ var sl = require('sugarlisp-core/types'),
 */
 // WE HAVE MOVED READ_DELIMITED_LIST INTO THE READER
 // THIS IS TEMPORARILY STILL HERE...  BUT SHOULD GET REMOVED
-exports.read_delimited_list = function(source, start, end, initial, separatorRE) {
-    return reader.read_delimited_list(source, start, end, initial, separatorRE);
-}
+// exports.read_delimited_list = function(source, start, end, initial, separatorRE) {
+//     return reader.read_delimited_list(source, start, end, initial, separatorRE);
+// }
 
 // read square bracketed array of data
 // (square brackets are an alternative to quoting)
@@ -29,76 +31,6 @@ exports.read_delimited_text = function(source, start, end, options) {
   options = options || {includeDelimiters: true};
   var delimited = source.next_delimited_token(start, end, options);
   return sl.atom(delimited);
-}
-
-// read object literal
-exports.read_objectliteralOLDDELETE = function(source) {
-  var objlist = sl.list("object");
-  var token = source.next_token("{");
-  objlist.setOpening(token);
-
-  // confirm that we start with a property key i.e. "property:":
-  // note: we use next_token here since it doesn't call the reader - performance
-  //   would suffer otherwise.  i.e. When there's multiple nested code blocks we
-  //   want to *quickly* recognize it's a code block and not an object.
-  token = source.next_token(/([a-zA-Z_\$]+[a-zA-Z0-9_\$]*\s*\:|[\'\"\`][a-zA-Z_\$]+[a-zA-Z0-9_\$]*[\'\"\`]\s*\:)/g,
-          "ambiguous object literal or code block does not start with a property key");
-  token.text = token.text.substring(0, token.text.length-1);
-  objlist.push(sl.atom(token.text, {token: token}));
-
-  // read the rest of the property keys/values
-  // note:  we cannot assume key/value pairs because infix notation is only
-  //   transformed after the reader has finished - consider e.g. key: (x) => {x}
-  var propertyValue = sl.list();
-  while(!source.eos() && !source.on('}')) {
-    var nextForm = reader.read(source);
-    // if we just a read a key (or hit the end)
-    if(source.on(':') || source.on('}')) {
-
-      // the end is a special case - add the last property value:
-      if(source.on('}')) {
-        propertyValue.push(nextForm);
-      }
-
-      // push on the result the value for the *prior* key:
-      if(propertyValue.length === 1) {
-        // the property value was a single value
-        objlist.push(propertyValue[0]);
-      }
-      else if(propertyValue.length > 1) {
-        // multiple values for the key - pushing it as a list means
-        // parenthesizing the expression which is important since infix
-        // transforms don't occur till later i.e. key: (x) => {x} becomes
-        // key: ((x) => {x}) which ensures the key/val even/odd structure
-        objlist.push(propertyValue);
-      }
-      else {
-        source.error("Syntax Error - two property keys in a row?");
-      }
-      propertyValue = sl.list();
-
-      if(source.on(':')) {
-        // Now we can push the key for the next value
-        objlist.push(nextForm);
-        source.skip_char(':');
-      }
-    }
-    else {
-      // not a property key, accumulate this for the next value.
-      propertyValue.push(nextForm);
-    }
-    source.skip_filler();
-  }
-  if (source.eos()) {
-    source.error("Expected '" + '}' + "', got EOF");
-  }
-  token = source.next_token('}');
-  objlist.setClosing(token);
-
-  // having the object properties available as actual javascript
-  // properties on the (object..) list is helpful in the macros esp:
-  objlist = exports.even_keys_to_list_properties(objlist);
-  return objlist;
 }
 
 // read object literal
@@ -150,118 +82,6 @@ exports.read_objectliteral = function(source, separatorRE) {
   return objlist;
 }
 
-/*
-// read object literal
-exports.read_objectliteralWIP = function(source) {
-  var list = sl.list("object");
-  var token = source.next_token("{");
-
-  // confirm that we start with a property key i.e. "property:":
-  // note: we use next_token here since it doesn't call the reader - performance
-  //   would suffer otherwise.  i.e. When there's multiple nested code blocks we
-  //   want to *quickly* recognize it's a code block and not an object.
-  token = source.next_token(/(^[a-zA-Z_\$]+[a-zA-Z0-9_\$]*\:$|^[\'\"\`].*[\'\"\`]\:$)/,
-          "ambiguous object literal or code block does not start with a property key");
-  list.push(sl.atom(token.text, {token: token});
-
-  // read the rest of the property keys/values
-  // note:  we cannot assume key/value pairs because infix notation is only
-  //   transformed after the reader has finished - consider e.g. key: (x) => {x}
-  while ((token = source.peek_word_token()) && token && token.text !== '}') {
-    var nextForm = reader.read(source);
-    if(sl.typeOf(nextForm) === 'symbol') {
-      var nextText = sl.valueOf(nextForm);
-      if(nextText[nextText.length-1] === ':') {
-        // we don't include the colon in the atoms
-        nextForm.value = nextText.substring(0, nextText.length-1);
-      }
-    }
-    list.push(nextForm);
-    source.skip_filler();
-  }
-  if (!token) {
-    reader.error("Expected '" + '}' + "', got EOF", source);
-  }
-  list.setClosing(token);
-  source.next_token('}');
-
-// DARN IT THIS CANT WORK HERE EITHER!!!
-// THERE ARE NO "EVEN KEYS" UNTIL THE TRANSFORM HAS BEEN DONE!!
-// DO WE/CAN WE DO THE TRANSFORMS HERE TO REARRANGE THE INFIX STUFF?
-// IT WOULD DO IT ON THE FORMS THAT ARE *BETWEEN* THE KEYS??!!
-// AND IF IT DID I'D ALSO WANT/NEED TO MAKE SURE THE LATER TRANSFORM
-// SKIPS OVER THESE SINCE I'VE ALREADY TRANSFORMED THEM.
-// OTHERWISE COULD THIS BE DONE *AFTER* THE READER HAS COMPLETED?
-// IT WOULD BE A TRANSFORM FUNCTION FOR "object" GIVEN A HIGH
-// PRECEDENCE LEVEL NUMBER SO IT RUNS AFTER EVERYTHING ELSE THAT
-// DOES THE even_keys_to_list_properties FUNCTION.  I.E. KEYS/VALUES
-// SHOULD BE EVEN/ODD AFTER THE INFIX TRANSFORMS ARE COMPLETE.
-// THATS THE BEST EASY SOLUTION I HAVE RIGHT NOW - ITS HIGHLIGHTING
-// THOUGH THAT THE INFIX HANDLING HAS MADE "READ" NOT FEEL VERY LISPY.
-// IN LISP READ IS SUPPOSED TO RETURN THE NEXT FORM - PERIOD!!
-//   IS IT POSSIBLE FOR THE READER TO STILL LOOK TO ALWAYS SEE IF IT'S
-//   SITTING ON AN INFIX OPERATOR AFTER A READ AND WHENEVER IT IS, IT
-//   READS AHEAD AGAIN - BUT DOESN'T LAND ME BACK ON THE "RIGHT ASSOCIATIVITY"?
-// ANOTHER OPTION WOULD BE TO JUST MAKE A RULE THAT ANY INFIX KEY
-// VALUES HAVE TO BE PARENTHESIZED?  key: ((x) => {x})
-// THAT STINKS THOUGH?  COULD I READ THROUGH, FINDING THE KEYS, AND
-// MAKING A LIST OF ANYWHERE THERE'S MORE THAN ONE FORM *BETWEEN* THE
-// KEYS?  THIS IS IN EFFECT PUTTING THE PARENS IN FOR THEM.  THEN THE
-// EVEN/ODD THING STILL WORKS HERE. AND THE FACT THAT THE INFIX TRANSFORM
-// DOESNT HAPPEN TILL LATER DOESNT MATTER (BECAUSE THIS LIST I'VE MADE
-// WILL REMAIN THE PARENT OF THE REARRANGED EXPRESSION)
-  list = exports.even_keys_to_list_properties(list);
-  return list;
-}
-*/
-// read object literal
-exports.read_objectliteralOldDeleteMe = function(source) {
-  var list = sl.list("object");
-  var token = source.next_token("{");
-
-  var atLeastOneProperty = false;
-  while ((token = source.peek_word_token()) && token && token.text !== '}') {
-    // is this a valid property key? (symbol or quoted string)
-    // (we don't call the reader here as a performance optimization)
-    if(/^[a-zA-Z_\$]+[a-zA-Z0-9_\$]*$/.test(token.text) ||
-       /^[\'\"\`].*[\'\"\`]$/.test(token.text)) {
-      var key = source.next_word_token();
-      list.push(key);
-    }
-    else if(token.text === "=>") {
-      // infix here does require the reader to recover
-      // and swap the infix "=>" to prefix...
-      var key = reader.read(source);
-      list.push(key);
-      continue; // this was actually the prior key's value
-    } else {
-      source.error('Expected an object property but found "' + token.text +
-        '" - ambiguous code block or object literal?', token);
-    }
-
-    // colons are an individual char separating the pairs:
-    // we just skip the colon lispy doesn't use them
-    source.next_token(":",
-      (atLeastOneProperty ?
-        "missing colon in object literal?" :
-        "ambiguous code block or object literal?"));
-    atLeastOneProperty = true;
-
-    // read the property value:
-    list.push(reader.read(source));
-
-    source.skip_filler();
-  }
-  if (!token) {
-    reader.error("Expected '" + '}' + "', got EOF", source);
-  }
-  list.setClosing(token);
-  source.next_token('}');
-
-  list = exports.even_keys_to_list_properties(list);
-  return list;
-}
-
 // convert the keys of the object list to javascript properties
 // the object list is the lispy (object...) list where every
 // other property is a key followed by it's value.
@@ -274,16 +94,18 @@ exports.even_keys_to_list_properties = function(objectlist, object) {
       objectlist[objectlist[i]] = objectlist[i+1];
     }
     else {
-      console.log("warning: cannot convert key to already existing property:",
+      slinfo("warning: cannot convert key to already existing property:",
         sl.valueOf(objectlist[i]));
     }
   }
   return objectlist;
 }
 
-// read a '{' '}' delimited object literal or code block.
-// it's an object literal if it's properly constructed with pairs of property keys and values
-// otherwise it's a code block which desugars to a lispy (do...) expression
+/**
+* read a '{' '}' delimited object literal or code block.
+* it's an object literal if it's properly constructed with pairs of property keys and values
+* otherwise it's a code block which desugars to a lispy (do...) expression
+*/
 exports.read_objectliteral_or_codeblock = function(source) {
   var list;
   source.mark_rewind_point();
@@ -296,16 +118,27 @@ exports.read_objectliteral_or_codeblock = function(source) {
     if(e.message.indexOf("ambiguous") !== -1) {
       // maybe this is a code block?
       source.rewind();
-      list = reader.read_delimited_list(source, '{', '}', ["do"]);
-//      list = reader.read_delimited_list(source, '{', '}', ["begin"]);
-      if(sl.list(list) && list.length === 1) {
-        // this was actually just and empty {}
-        list[0].value = "object";
-      }
+      list = exports.read_codeblock(source, "begin");
     }
     else {
       throw e;  // it was an object literal with a typo
     }
+  }
+  return list;
+}
+
+/**
+* read a {...} delimited list known to be a code block
+* (as oppsed to an object literal)
+* @param as - the lispy function representing the code block
+*             (defaults to "do")
+*/
+exports.read_codeblock = function(source, as) {
+  var initial = (as ? [as] : ["do"]);
+  var list = reader.read_delimited_list(source, '{', '}', [as]);
+  if(sl.list(list) && list.length === 1) {
+    // this was actually just an empty {}
+    list[0].value = "object";
   }
   return list;
 }

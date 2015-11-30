@@ -24,7 +24,7 @@
 module.exports = {
   filename: undefined,
   fileext: undefined,
-  options: undefined,
+  options: { transpile: {} },
   source: undefined,
   indentSize: 2,
   indent: 6,

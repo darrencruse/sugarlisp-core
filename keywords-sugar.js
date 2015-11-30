@@ -57,13 +57,54 @@ exports["dotprop"] = function(forms) {
       }, this);
   }, this);
 };
-exports["if"] = function(forms) {
+
+exports["new"] = function() {
+  var args = Array.prototype.slice.call(arguments);
+  return match(args, function(when) {
+    when([
+        function(sym) {
+          return sym.value === "new";
+        },
+        match.var("classname", match.slsymbol)
+      ],
+      function(vars) {
+        return (function(classname, constructorArgs) {
+          this.x(constructorArgs);
+          return sl.transpiled([
+            "new ", classname, "(", constructorArgs, ")"
+          ]);
+        }).call(this, vars["classname"], vars["_rest"]);
+      }, this);
+    when([
+        function(sym) {
+          return sym.value === "new";
+        }
+      ],
+      function(vars) {
+        return (function(newArgs) {
+          this.x(newArgs);
+          return sl.transpiled([
+            "new ", newArgs
+          ]);
+        }).call(this, vars["_rest"]);
+      }, this);
+    when([
+        match.var("any", match.sldefault)
+      ],
+      function(vars) {
+        return (function(any) {
+          return this.error("missing class name for new operator?");
+        }).call(this, vars["any"]);
+      }, this);
+  }, this)
+};
+exports["if?"] = function(forms) {
   this.transpileSubExpressions(forms);
 
   return match(forms, function(when) {
     when([
         function(sym) {
-          return sym.value === "if";
+          return sym.value === "if?";
         },
         match.var("condition", match.any),
         match.var("iftrue", match.any),
@@ -80,7 +121,7 @@ exports["if"] = function(forms) {
       }, this);
     when([
         function(sym) {
-          return sym.value === "if";
+          return sym.value === "if?";
         },
         match.var("condition", match.any),
         match.var("iftrue", match.any)
@@ -98,55 +139,57 @@ exports["if"] = function(forms) {
       ],
       function(vars) {
         return (function(any) {
-          return this.error('if expects a condition followed by one (for "then") or two (for "else") body expressions');
+          return this.error('if? expects a condition followed by one (for "then") or two (for "else") body expressions');
         }).call(this, vars["any"]);
       }, this);
   }, this);
 };
+exports["if"] = function(forms) {
+  this.transpileSubExpressions(forms);
 
-exports["new"] = function() {
-  var args = Array.prototype.slice.call(arguments);
-  return match(args, function(when) {
+  return match(forms, function(when) {
     when([
         function(sym) {
-          return sym.value === "new";
+          return sym.value === "if";
         },
-        match.var("classname", match.slsymbol)
+        match.var("condition", match.any),
+        match.var("iftrue", match.any),
+        match.var("iffalse", match.any)
       ],
       function(vars) {
-        return (function(classname, constructorArgs) {
-          return (function() {
-            this.x(constructorArgs);
-            return sl.transpiled([
-              "new ", classname, "(", constructorArgs, ")"
-            ]);
-          }).call(this);
-        }).call(this, vars["classname"], vars["_rest"]);
+        return (function(condition, iftrue, iffalse) {
+          return sl.transpiled([
+            "if(", condition, ") {\n",
+            "  ", iftrue, "}\n",
+            "else {\n",
+            "  ", iffalse, "}"
+          ]);
+        }).call(this, vars["condition"], vars["iftrue"], vars["iffalse"]);
       }, this);
     when([
         function(sym) {
-          return sym.value === "new";
-        }
+          return sym.value === "if";
+        },
+        match.var("condition", match.any),
+        match.var("iftrue", match.any)
       ],
       function(vars) {
-        return (function(newArgs) {
-          return (function() {
-            this.x(newArgs);
-            return sl.transpiled([
-              "new ", newArgs
-            ]);
-          }).call(this);
-        }).call(this, vars["_rest"]);
+        return (function(condition, iftrue) {
+          return sl.transpiled([
+            "if(", condition, ") {\n",
+            "  ", iftrue, "}"
+          ]);
+        }).call(this, vars["condition"], vars["iftrue"]);
       }, this);
     when([
         match.var("any", match.sldefault)
       ],
       function(vars) {
         return (function(any) {
-          return this.error("missing class name for new operator?");
+          return this.error('if expects a condition followed by one (for "then") or two (for "else") body expressions');
         }).call(this, vars["any"]);
       }, this);
-  }, this)
+  }, this);
 };
 exports["while"] = function() {
   var args = Array.prototype.slice.call(arguments);
@@ -155,19 +198,15 @@ exports["while"] = function() {
         function(sym) {
           return sym.value === "while";
         },
-        match.var("condition", match.any),
-        match.var("body", match.sllist)
+        match.var("condition", match.any)
       ],
       function(vars) {
         return (function(condition, body) {
-          return (function() {
-            return sl.transpiled([
-              "while(", this.x(condition), ") {\n",
-              "    ", this.x(body), "\n",
-              "}"
-            ]);
-          }).call(this);
-        }).call(this, vars["condition"], vars["body"]);
+          return sl.transpiled([
+            "while(", this.x(condition), ") {\n",
+            "    ", this.transpileExpressions(body, true), "}"
+          ]);
+        }).call(this, vars["condition"], vars["_rest"]);
       }, this);
     when([
         match.var("any", match.sldefault)
@@ -179,36 +218,97 @@ exports["while"] = function() {
       }, this);
   }, this)
 };
-
-exports["times"] = function() {
+exports["for"] = function() {
   var args = Array.prototype.slice.call(arguments);
   return match(args, function(when) {
     when([
         function(sym) {
-          return sym.value === "times";
+          return sym.value === "for";
         },
-        match.var("varname", match.slsymbol),
-        match.var("iterations", match.any),
-        match.var("body", match.sllist)
+        match.var("initializer", match.any),
+        match.var("condition", match.any),
+        match.var("finalizer", match.any)
       ],
       function(vars) {
-        return (function(varname, iterations, body) {
-          return (function() {
-            return sl.transpiled([
-              "for(var ", varname, " = 0; ", varname, " < ", this.x(iterations), "; ", varname, "++) {\n",
-              "    ", this.x(body), "\n",
-              "}"
-            ]);
-          }).call(this);
-        }).call(this, vars["varname"], vars["iterations"], vars["body"]);
+        return (function(initializer, condition, finalizer, body) {
+          return sl.transpiled([
+            "for(", this.x(initializer), "; ", this.x(condition), "; ", this.x(finalizer), ") {\n",
+            "    ", this.transpileExpressions(body, true), "}"
+          ]);
+        }).call(this, vars["initializer"], vars["condition"], vars["finalizer"], vars["_rest"]);
       }, this);
     when([
         match.var("any", match.sldefault)
       ],
       function(vars) {
         return (function(any) {
-          return this.error("a times loop expects a variable name, number of iterations, and the loop body");
+          return this.error("a for loop expects an initializer, condition, finalizer, and loop body");
         }).call(this, vars["any"]);
       }, this);
   }, this)
+};
+exports["dotimes"] = function() {
+  var args = Array.prototype.slice.call(arguments);
+  return match(args, function(when) {
+    when([
+        function(sym) {
+          return sym.value === "dotimes";
+        },
+        match.var("spec", match.sllist)
+      ],
+      function(vars) {
+        return (function(spec, body) {
+          return sl.transpiled([
+            "for(var ", spec[0], " = 0; ", spec[0], " < ", this.x(spec[1]), "; ", spec[0], "++) {\n",
+            "    ", this.transpileExpressions(body, true), "}"
+          ]);
+        }).call(this, vars["spec"], vars["_rest"]);
+      }, this);
+    when([
+        match.var("any", match.sldefault)
+      ],
+      function(vars) {
+        return (function(any) {
+          return this.error("dotimes expects (var name, iterations) followed by the loop body");
+        }).call(this, vars["any"]);
+      }, this);
+  }, this)
+};
+
+exports["switch"] = function() {
+  var args = Array.prototype.slice.call(arguments);
+  return match(args, function(when) {
+    when([
+        function(sym) {
+          return sym.value === "switch";
+        },
+        match.var("switchon", match.any)
+      ],
+      function(vars) {
+        return (function(switchon, body) {
+          return sl.transpiled([
+            "switch(", this.x(switchon), ") {\n",
+            "     ", body.map(function(caseform, pos) {
+              return ((((pos % 2) === 0) ?
+                sl.transpiled((((sl.valueOf(caseform) !== "default") ?
+                  "case " :
+                  "")), sl.valueOf(caseform), ":\n") :
+                this.transpileExpression(caseform)));
+            }.bind(this)), "}"
+          ]);
+        }).call(this, vars["switchon"], vars["_rest"]);
+      }, this);
+    when([
+        match.var("any", match.sldefault)
+      ],
+      function(vars) {
+        return (function(any) {
+          return this.error("a switch statement expects a value and body");
+        }).call(this, vars["any"]);
+      }, this);
+  }, this)
+};
+
+exports["break"] = function(forms) {
+  return sl.transpiled("break");
 };

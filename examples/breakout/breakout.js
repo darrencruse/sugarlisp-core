@@ -46,9 +46,9 @@ function clear() {
 }
 
 function circle(x, y) {
-  (context.beginPath());
+  context.beginPath();
   context.arc(x, y, 10, 0, (2 * Math.PI));
-  return (context.fill());
+  return context.fill();
 }
 
 function drawPaddle() {
@@ -75,44 +75,38 @@ function drawBricks() {
 }
 
 function hitHorizontal() {
-  return (((ballX < 0) || (ballX > canvas.width)) ?
-    ballVx = -ballVx : undefined);
+  if (((ballX < 0) || (ballX > canvas.width))) {
+    ballVx = -ballVx
+  };
 }
 
 function hitVertical() {
-  return ((ballY < 0) ?
-    (function() {
-      ballVy = -ballVy;
-      return true;
-    })() :
-    ((ballY < (brickHeight * bricksNumY)) ?
-      (function() {
-        var bx = Math.floor((ballX / brickWidth));
-        var by = Math.floor((ballY / brickHeight));
-        (((bx >= 0) && (bx < bricksNumX)) ?
-          (bricks[by][bx] ?
-            (function() {
-              bricks[by][bx] = false;
-              return ballVy = -ballVy;
-            })() : undefined) : undefined);
-        return true;
-      })() :
-      ((ballY >= (canvas.height - paddleHeight)) ?
-        (function() {
-          var paddleLeft = (paddleX - (paddleWidth / 2));
-          var paddleRight = (paddleX + (paddleWidth / 2));
-          return (((ballX >= paddleLeft) && (ballX <= paddleRight)) ?
-            (function() {
-              ballVy = -ballVy;
-              return true;
-            })() :
-            (function() {
-              init();
-              return false;
-            })());
-        })() :
-        (true ?
-          true : undefined))));
+  if ((ballY < 0)) {
+    ballVy = -ballVy
+  } else {
+    if ((ballY < (brickHeight * bricksNumY))) {
+      var bx = Math.floor((ballX / brickWidth));
+      var by = Math.floor((ballY / brickHeight));
+      if (((bx >= 0) && (bx < bricksNumX))) {
+        if (bricks[by][bx]) {
+          bricks[by][bx] = false;
+          ballVy = -ballVy;
+        }
+      };
+    } else {
+      if ((ballY >= (canvas.height - paddleHeight))) {
+        var paddleLeft = (paddleX - (paddleWidth / 2));
+        var paddleRight = (paddleX + (paddleWidth / 2));
+        if (((ballX >= paddleLeft) && (ballX <= paddleRight))) {
+          ballVy = -ballVy
+        } else {
+          init();
+          return false;
+        };
+      }
+    }
+  };
+  return true;
 }
 
 function tick() {
@@ -121,12 +115,12 @@ function tick() {
   ballX = (ballX + ballVx);
   ballY = (ballY + ballVy);
   hitHorizontal();
-  return (hitVertical() ?
-    (function() {
-      circle(ballX, ballY);
-      return drawBricks();
-    })() :
-    clear());
+  if (hitVertical()) {
+    circle(ballX, ballY);
+    drawBricks();
+  } else {
+    clear()
+  };
 }
 
 window.onload = function(event) {

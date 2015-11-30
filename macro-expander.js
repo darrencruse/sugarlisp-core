@@ -294,7 +294,7 @@ function evalUnquotedExpression(ctx, expr, replacements, isrestarg) {
   // consider merging or replacing the below with one of the ctx.eval* calls
   if(ctx.options.transpile.csp) {
     require('loophole').allowUnsafeNewFunction(function() {
-      replacements['ls'] = ls;
+      replacements['sl'] = sl;
       var replacementNames = Object.keys(replacements);
       replacementValues = replacementNames.map(function(p) { return replacements[p]; });
       var f =  utils.anonymousFunction(replacementNames,
@@ -334,15 +334,15 @@ function escapeToJs(ctx, jsescform, replacements) {
     // consider merging or replacing the below with one of the ctx.eval* calls
     if(ctx.options.transpile.csp) {
       require('loophole').allowUnsafeNewFunction(function() {
-        var f = new Function("$args", "ls", "'use strict'; " + jscodestr);
+        var f = new Function("$args", "sl", "'use strict'; " + jscodestr);
         // note the evaluated javascript can see the replacements as normal variables
-        result = f.call(replacements, replacements, ls);
+        result = f.call(replacements, replacements, sl);
       });
     }
     else {
-      var f = new Function("$args", "ls", "'use strict'; " + jscodestr);
+      var f = new Function("$args", "sl", "'use strict'; " + jscodestr);
       // note the evaluated javascript can see the replacements as normal variables
-      result = f.call(replacements, replacements, ls);
+      result = f.call(replacements, replacements, sl);
     }
   }
   return result;

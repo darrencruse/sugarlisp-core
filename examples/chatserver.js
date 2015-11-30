@@ -5,8 +5,9 @@ var port = 3000;
 var clientList = [];
 var broadcast = function(message, client) {
   return clientList.forEach(function(currentClient) {
-    return ((currentClient != client) ?
-      currentClient.write([client.name, " says ", message].join('')) : undefined);
+    if ((currentClient != client)) {
+      currentClient.write([client.name, " says ", message].join(''))
+    };
   });
 };
 chatServer.on("connection", function(client) {

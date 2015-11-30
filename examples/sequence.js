@@ -5,9 +5,11 @@ var http = require("http");
 var requestHandler = function(request, response) {
   return (function() {
     var filename = null;
-    ((request.url === "/") ?
-      filename = "index.html" :
-      filename = request.url.substr(1));
+    if ((request.url === "/")) {
+      filename = "index.html"
+    } else {
+      filename = request.url.substr(1)
+    };
     response.setHeader("Content-Type", "text/html");
     var next = null;
     var ___curr = -1;
@@ -16,14 +18,18 @@ var requestHandler = function(request, response) {
         return fs.exists(filename, next());
       },
       function(exists) {
-        return (exists ?
-          fs.readFile(filename, "utf8", next()) :
-          response.end("File Not Found"));
+        if (exists) {
+          fs.readFile(filename, "utf8", next())
+        } else {
+          response.end("File Not Found")
+        };
       },
       function(err, data) {
-        return (err ?
-          response.end("Internal Server Error") :
-          response.end(data));
+        if (err) {
+          response.end("Internal Server Error")
+        } else {
+          response.end(data)
+        };
       }
     ];
     next = function() {

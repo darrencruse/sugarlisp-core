@@ -143,48 +143,55 @@ exports["export"] = function(forms) {
 };
 
 /*
- * as you can see set is actually compiled sugarlisp code,
- * it's included here to avoid some chicken-and-egg issues
+ * set started compiled sugarlisp code, but got pulled in
+ * here to avoid some chicken-and-egg issues
  */
-exports["set"] = function() {
-  var args = Array.prototype.slice.call(arguments);
-  return match(args, function(when) {
-    when([
-        function(sym) {
-          return sym.value === "set";
-        },
-        match.var("key", match.any),
-        match.var("arrayname", match.any),
-        match.var("valexpr", match.any)
-      ],
-      function(vars) {
-        return (function(key, arrayname, valexpr) {
-          return sl.transpiled([
-            this.x(arrayname), "[", this.x(key), "] = ", this.x(valexpr)
-          ]);
-        }).call(this, vars["key"], vars["arrayname"], vars["valexpr"]);
-      }, this);
-    when([
-        function(sym) {
-          return sym.value === "set";
-        },
-        match.var("varexpr", match.any),
-        match.var("valexpr", match.any)
-      ],
-      function(vars) {
-        return (function(varexpr, valexpr) {
-          return sl.transpiled([
-            this.x(varexpr), " = ", this.x(valexpr)
-          ]);
-        }).call(this, vars["varexpr"], vars["valexpr"]);
-      }, this);
-    when([
-        match.var("any", match.lsdefault)
-      ],
-      function(vars) {
-        return (function(any) {
-          return this.error('invalid arguments for "set"');
-        }).call(this, vars["any"]);
-      }, this);
-  }, this)
+function handleSet(setFnName) {
+  return function() {
+    var args = Array.prototype.slice.call(arguments);
+    return match(args, function(when) {
+      when([
+          function(sym) {
+            return sym.value === setFnName;
+          },
+          match.var("key", match.any),
+          match.var("arrayname", match.any),
+          match.var("valexpr", match.any)
+        ],
+        function(vars) {
+          return (function(key, arrayname, valexpr) {
+            return sl.transpiled([
+              this.x(arrayname), "[", this.x(key), "] = ", this.x(valexpr)
+            ]);
+          }).call(this, vars["key"], vars["arrayname"], vars["valexpr"]);
+        }, this);
+      when([
+          function(sym) {
+            return sym.value === setFnName;
+          },
+          match.var("varexpr", match.any),
+          match.var("valexpr", match.any)
+        ],
+        function(vars) {
+          return (function(varexpr, valexpr) {
+            return sl.transpiled([
+              this.x(varexpr), " = ", this.x(valexpr)
+            ]);
+          }).call(this, vars["varexpr"], vars["valexpr"]);
+        }, this);
+      when([
+          match.var("any", match.lsdefault)
+        ],
+        function(vars) {
+          return (function(any) {
+            return this.error('invalid arguments for ' + setFnName);
+          }).call(this, vars["any"]);
+        }, this);
+    }, this)
+  };
 }
+
+// lispy (set var val)
+exports["set"] = handleSet("set");
+// and let (= var val) work the same as (set var val)...
+exports["="] = handleSet("=");

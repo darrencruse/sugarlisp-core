@@ -27,27 +27,6 @@ export "dotprop" function (forms) {
   }
 }
 
-// if expression (a javascript ternary)
-// TODO (fix) the line below blows up in atom preview
-//       with no space between function and (forms)!!
-export "if" function (forms) {
-  @transpileSubExpressions(forms);
-
-  match (forms) {
-
-    case ["if" condition iftrue iffalse]
-      """(${condition} ?
-       ..    ${iftrue} :
-       ..    ${iffalse})"""
-
-    case ["if" condition iftrue]
-      """(${condition} ?
-       ..    ${iftrue} : undefined )"""
-
-    default @error('if expects a condition followed by one (for "then") or two (for "else") body expressions');
-  }
-}
-
 export "new" function {
 
   case ["new" classname::slsymbol ...constructorArgs]  {
@@ -63,31 +42,122 @@ export "new" function {
   default @error("missing class name for new operator?");
 }
 
-// this version of while when used with "do" or {}
-// wraps it's body in an IIFE.
-// This is a problem for the csp stuff because you
-// can't put yield statements in an IIFE because it's
-// not a generator.  So with csp they should use the
-// #use "statements" dialect which provides a different
-// while implementation.
+// if expression (a javascript ternary)
+// TODO (fix) the line below blows up in atom preview
+//       with no space between function and (forms)!!
+export "if?" function (forms) {
+  @transpileSubExpressions(forms);
+
+  match (forms) {
+
+    case ["if?" condition iftrue iffalse]
+      """(${condition} ?
+       ..    ${iftrue} :
+       ..    ${iffalse})"""
+
+    case ["if?" condition iftrue]
+      """(${condition} ?
+       ..    ${iftrue} : undefined )"""
+
+    default @error('if? expects a condition followed by one (for "then") or two (for "else") body expressions');
+  }
+}
+
+// statements ///////////////////////////////////////////////////////
+// the following generate javascript *statements* which can lead to
+// javascript syntax errors if used where *expressions* are expected.
+// Currently sugarlisp does *not* warn about such mismatches, it's
+// the programmer's job to use these appropriately and correct their
+// code if such errors are reported by javascript.
+
+// if statement (a standard javascript "if")
+// TODO (fix) the line below blows up in atom preview
+//       with no space between function and (forms)!!
+export "if" function (forms) {
+  @transpileSubExpressions(forms);
+
+  match (forms) {
+
+    case ["if" condition iftrue iffalse]
+      """if(${condition}) {
+       ..  ${iftrue}}
+       ..else {
+       ..  ${iffalse}}"""
+
+    case ["if" condition iftrue]
+      """if(${condition}) {
+       ..  ${iftrue}}"""
+
+    default @error('if expects a condition followed by one (for "then") or two (for "else") body expressions');
+  }
+}
+
+/**
+* simple while loop
+*   the body is expected in-line (with no wrapper) after the cond i.e.
+*
+*   (while cond
+*      bodyexpr1
+*      bodyexpr2)
+*/
 export "while" function {
 
-  case ["while" condition body::sllist] {
+  case ["while" condition ...body] {
     """while(${@x(condition)}) {
-     ..    ${@x(body)}
-     ..}"""
+     ..    ${@transpileExpressions(body, true)}}"""
   }
 
   default @error("a while loop expects a condition and loop body");
 }
 
-export "times" function {
+// javascript for statement
+// (not to be confused with the for comprehension macro for')
+export "for" function {
 
-  case ["times" varname::slsymbol iterations body::sllist]  {
-    """for(var ${varname} = 0; ${varname} < ${@x(iterations)}; ${varname}++) {
-     ..    ${@x(body)}
-     ..}"""
+  case ["for" initializer condition finalizer ...body] {
+    """for(${@x(initializer)}; ${@x(condition)}; ${@x(finalizer)}) {
+     ..    ${@transpileExpressions(body, true)}}"""
   }
 
-  default @error("a times loop expects a variable name, number of iterations, and the loop body");
+  default @error("a for loop expects an initializer, condition, finalizer, and loop body");
+}
+
+/**
+* dotimes loop
+*   it expects a list with the var name and the count followed by the body
+*   in-line (with no wrapper) i.e.
+*
+*   (dotimes (varname count)
+*      bodyexpr1
+*      bodyexpr2)
+*
+* note:  this is generating a javascript for *statement*.
+*/
+export "dotimes" function {
+
+  case ["dotimes" spec::sllist ...body]  {
+    """for(var ${first(spec)} = 0; ${first(spec)} < ${@x(spec[1])}; ${first(spec)}++) {
+     ..    ${@transpileExpressions(body, true)}}"""
+  }
+
+  default @error("dotimes expects (var name, iterations) followed by the loop body");
+}
+
+export "switch" function {
+
+  case ["switch" switchon ...body] {
+    """switch(${@x(switchon)}) {
+     ${body.map((caseform, pos) => {
+       (pos % 2 === 0 ?
+          sl.transpiled((sl.valueOf(caseform) !== "default" ? "case " : ""),
+                        sl.valueOf(caseform), ":\n") :
+          @transpileExpression(caseform))
+        })}}"""
+  }
+
+  default @error("a switch statement expects a value and body");
+}
+
+export "break" function (forms) {
+  sl.transpiled("break");
 }

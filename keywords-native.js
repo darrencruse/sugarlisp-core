@@ -2,7 +2,7 @@
  * Keywords of the core SugarLisp language
  */
 
-var reader = require('./reader'),
+var reader = require('sugarlisp-core/reader'),
     sl = require('./types'),
     utils = require('./utils'),
     debug = require('debug')('sugarlisp:core:keywords:info'),
@@ -233,9 +233,9 @@ exports["try"] = function(forms) {
 * transpile time "#if" condition for including/omitting code from the output
 * note the expression in the condition is evaluated at *transpile time*
 * Also #if (as with the other # directives) is paren free, taking two args:
-* a condition followed by a single code expression to be transpiled or not.
-* it does not support an "else" (negate your condition with a second #if when
-* you need an "else")
+* a condition in parens followed by the code to be transpiled or not (can
+* be a single expression otherwise wrap in {}).  Note #if does not support
+* an "else" (negate your condition with a second #if when you need an "else")
 * TBD IS THE QUESTION OF SOURCE MAPS
 * I.E. CAN SOURCE MAPS MAP TO THE FILE WITH THESE SECTIONS COLLAPSED AWAY?
 * TO DO THAT IMPLIES I'VE ADJUSTED THE LINE NUMBERS
@@ -246,7 +246,7 @@ exports["try"] = function(forms) {
 * IF THEYRE NOT GENERATING SOURCE MAPS DO THE BLANKING IF THEY ARE.
 */
 exports["#if"] = function(forms) {
-    if (forms.length !== 3) {
+    if (forms.length < 3) {
       forms.error("\"#if\" directive takes a condition and a body");
     }
 
@@ -259,17 +259,7 @@ exports["#if"] = function(forms) {
       return reader.ignorable_form;
     }
 
-    var code = forms[2];
-
-    // the brackets used to delimit a multi-line #if should *not* get an IIFE
-    if(sl.isList(code) && code.length > 0 &&
-      sl.typeOf(code[0]) === 'symbol' && code[0].value === "do")
-    {
-        code[0].value = "begin";
-        code[0].text = "begin";
-    }
-
-    return (sl.isList(code) ? this.transpileExpression(code) : code);
+    return this.transpileExpressions(forms.slice(2));
 }
 
 exports["get"] = function(forms) {
@@ -462,11 +452,11 @@ exports["regex"] = function(forms) {
 // it's implemented as a self invoking function
 exports["do"] = function(forms) {
     // if statements are enabled
-    if(this.options.transpile.statements)
-    {
-      // then don't wrap in an IIFE (which is what our "begin" is for)
-      return exports["begin"].call(this, forms);
-    }
+//    if(this.options.transpile.statements)
+//    {
+//      // then don't wrap in an IIFE (which is what our "begin" is for)
+//      return exports["begin"].call(this, forms);
+//    }
 
     // make a lispy function expression with the do args as it's body:
     var wrapperfn = sl.list(sl.atom("function"), sl.list())
@@ -492,44 +482,12 @@ exports["do"] = function(forms) {
     return transpiled;
 }
 
-// MAYBE THIS WOULD BETTER BE NAMED "block"???
-
 // "begin" is much like "do" except it simply
 // generates the code for each expression without
 // wrapping the result in an IIFE (as "do" does)
 exports["begin"] = function(forms) {
     forms.shift(); // get rid of "begin"
-    //forms[1].noReturn = true;
-    return this.transpileExpressions(forms);
-  /*
-    var transpiled = sl.transpiled();
-
-    if (forms.length == 1) {
-        return transpiled;
-    }
-
-    var ctx = this;
-    forms.forEach(function(form, i) {
-      if(i > 0) { // skip the "begin" symbol
-        if (sl.isList(form)) {
-          form = ctx.transpileExpression(form);
-          forms[i] = form;
-        }
-
-        if(i > 1) {
-          transpiled.push("\n" + " ".repeat(ctx.indent));
-        }
-
-        transpiled.push(form);
-        transpiled.push(ctx.semi());
-      }
-
-    });
-
-    this.noSemiColon = true;
-    this.noReturn = true;
-    return transpiled;
-*/
+    return this.transpileExpressions(forms, true);
 }
 
 /**

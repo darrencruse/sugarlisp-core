@@ -122,7 +122,7 @@ exports["function?"] = function(forms) {
 };
 exports["when"] = function(forms) {
   var macrodef = ["macro", ["cond", "...rest"],
-    ["if", ["~", "cond"],
+    ["if?", ["~", "cond"],
       ["do", ["~", "rest"]]
     ]
   ];
@@ -142,7 +142,7 @@ exports["unless"] = function(forms) {
 
 exports["cond"] = function(forms) {
   var macrodef = ["macro", ["...rest"],
-    ["if", ["#args-shift", "rest"],
+    ["if?", ["#args-shift", "rest"],
       ["#args-shift", "rest"],
       ["#args-if", "rest", ["cond", ["~", "rest"]]]
     ]
@@ -150,13 +150,13 @@ exports["cond"] = function(forms) {
   return this.macroexpand(forms, macrodef);
 };
 
-exports["switch"] = function(forms) {
+exports["case"] = function(forms) {
   var macrodef = ["macro", ["matchto", "...rest"],
-    ["if", ["===", ["~", "matchto"],
+    ["if?", ["===", ["~", "matchto"],
         ["#args-shift", "rest"]
       ],
       ["#args-shift", "rest"],
-      ["#args-if", "rest", ["switch", ["~", "matchto"],
+      ["#args-if", "rest", ["case", ["~", "matchto"],
         ["~", "rest"]
       ]]
     ]
@@ -346,7 +346,7 @@ exports["loop"] = function(forms) {
         ]],
         ["set", "recur", ["function", [],
           ["set", "___nextArgs", "arguments"],
-          ["if", ["===", "___result", "undefined"], "undefined", ["do", ["set", "___result", "undefined"],
+          ["if?", ["===", "___result", "undefined"], "undefined", ["do", ["set", "___result", "undefined"],
             ["js", "\"while(___result===undefined) ___result=___f.apply(this,___nextArgs);\""], "___result"
           ]]
         ]],
@@ -356,8 +356,7 @@ exports["loop"] = function(forms) {
   ];
   return this.macroexpand(forms, macrodef);
 };
-
-exports["for"] = function(forms) {
+exports["for'"] = function(forms) {
   var macrodef = ["macro", ["...rest"],
     ["doMonad", "arrayMonad", ["~", "rest"]]
   ];
@@ -446,7 +445,7 @@ exports["sequence"] = function(forms) {
             ["var", "___actions", ["array", ["~@", "rest"]]],
             ["set", "next", ["function", [],
               ["var", "ne", ["get", ["++", "___curr"], "___actions"]],
-              ["if", "ne", "ne", ["throw", "\"Call to (next) beyond sequence.\""]]
+              ["if?", "ne", "ne", ["throw", "\"Call to (next) beyond sequence.\""]]
             ]],
             [
               [
@@ -496,7 +495,7 @@ exports["template-repeat-key"] = function(forms) {
 };
 exports["assert"] = function(forms) {
   var macrodef = ["macro", ["cond", "message"],
-    ["if", ["true?", ["~", "cond"]],
+    ["if?", ["true?", ["~", "cond"]],
       ["+", "\"Passed - \"", ["~", "message"]],
       ["+", "\"Failed - \"", ["~", "message"]]
     ]
@@ -521,7 +520,7 @@ exports["testRunner"] = function(forms) {
       ["function", ["groupname", "desc"],
         ["var", "start", ["new", "Date"], "tests", ["groupname"], "passed", 0, "failed", 0],
         ["each", "tests", ["function", ["elem"],
-          ["if", [
+          ["if?", [
               [".", "elem", "match"],
               ["regex", "\"^Passed\""]
             ],
@@ -555,7 +554,7 @@ exports["maybeMonad"] = function(forms) {
   var macrodef = ["macro", [],
     ["object",
       "mBind", ["function", ["mv", "mf"],
-        ["if", ["null?", "mv"], null, ["mf", "mv"]]
+        ["if?", ["null?", "mv"], null, ["mf", "mv"]]
       ],
       "mResult", ["function", ["v"], "v"],
       "mZero", null
@@ -681,7 +680,7 @@ exports["doMonad"] = function(forms) {
   var macrodef = ["macro", ["monad", "bindings", "expr"],
     ["withMonad", ["~", "monad"],
       ["var", "____mResult", ["function", ["___arg"],
-        ["if", ["&&", ["undefined?", "___arg"],
+        ["if?", ["&&", ["undefined?", "___arg"],
           [
             ["!", ["undefined?", "mZero"]]
           ]

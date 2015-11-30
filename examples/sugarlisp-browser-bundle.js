@@ -1,1 +1,1 @@
-../../sugarlisp/lib/sugarlisp-browser-bundle.js
+../../../lib/sugarlisp-browser-bundle.js

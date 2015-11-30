@@ -1,23 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title>Breakout Game</title>
+<title>Breakout Game</title>
 
-	<link rel="stylesheet" type="text/css" href="breakout.css">
+<link rel="stylesheet" type="text/css" href="breakout.css">
 
-	<!-- for the in-browser repl -->
-	<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>
-	<script src="http://terminal.jcubic.pl/js/jquery.terminal-src.js"></script>
-	<script src="http://terminal.jcubic.pl/js/jquery.mousewheel-min.js"></script>
-	<link href="http://terminal.jcubic.pl/css/jquery.terminal.css" rel="stylesheet"/>
+<!-- for the in-browser repl -->
+<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>
+<script src="http://terminal.jcubic.pl/js/jquery.terminal-src.js"></script>
+<script src="http://terminal.jcubic.pl/js/jquery.mousewheel-min.js"></script>
+<link href="http://terminal.jcubic.pl/css/jquery.terminal.css" rel="stylesheet"/>
 
-	<!-- for in browser lispyscript translation -->
-	<script type="text/javascript" src="../sugarlisp-browser-bundle-min.js.gz"></script>
-	<!--script type="text/javascript" src="../sugarlisp-browser-bundle.js"></script-->
+<!-- for in browser lispyscript translation -->
+<script type="text/javascript" src="../sugarlisp-browser-bundle-min.js.gz"></script>
+<!--script type="text/javascript" src="../sugarlisp-browser-bundle.js"></script-->
 
-	<!-- this example shows the lispyscript in one page -->
-	<!-- note no "id" here means this is plain (top level) code (i.e. not a commonJS module) -->
-	<script type="text/sugarlisp">
+<!-- this example shows the lispyscript in one page -->
+<!-- note no "id" here means this is plain (top level) code (i.e. not a commonJS module) -->
+<script type="text/sugarlisp">
 
 	;; The breakout game written in SugarLisp
 	;; See examples/README for instructions how to run it
@@ -74,7 +74,7 @@
 	(function drawBricks ()
 	  (each2d bricks
 	    (function (val x y arr)
-	      (if val
+	      (if? val
 	        (do
 	          (var xpos (+ (* x brickWidth) (/ brickMargin 2)))
 	          (var ypos (+ (* y brickHeight) (/ brickMargin 2)))
@@ -84,45 +84,51 @@
 
 	(function hitHorizontal ()
 	  (if (|| (< ballX 0) (> ballX canvas.width))
-	    (set ballVx (- ballVx))))
+	    (set ballVx -ballVx)))
 
 	(function hitVertical ()
-	  (cond
-	    (< ballY 0) (do (set ballVy (- ballVy)) true)
-	    (< ballY (* brickHeight bricksNumY))
-	      (do
+	  (if (< ballY 0)
+	    (set ballVy -ballVy)
+	    (if (< ballY (* brickHeight bricksNumY))
+	      {
 	        (var bx (Math.floor (/ ballX brickWidth)))
 	        (var by (Math.floor (/ ballY brickHeight)))
 	        (if (&& (>= bx 0) (< bx bricksNumX))
 	          (if (get bx (get by bricks))
-	            (do
+	            {
 	              (set bx (get by bricks) false)
-	              (set ballVy (- ballVy)))))
-	        true)
-	    (>= ballY (- canvas.height paddleHeight))
-	      (do
-	        (var paddleLeft (- paddleX (/ paddleWidth 2)))
-	        (var paddleRight (+ paddleX (/ paddleWidth 2)))
-	        (if (&& (>= ballX paddleLeft) (<= ballX paddleRight))
-	          (do (set ballVy (- ballVy)) true)
-	          (do (init) false)))
-	    true true))
+	              (set ballVy -ballVy)
+	            }))
+	      }
+	      (if (>= ballY (- canvas.height paddleHeight))
+	        {
+	          (var paddleLeft (- paddleX (/ paddleWidth 2)))
+	          (var paddleRight (+ paddleX (/ paddleWidth 2)))
+	          (if (&& (>= ballX paddleLeft) (<= ballX paddleRight))
+	            (set ballVy -ballVy)
+	            {
+	              (init)
+	              (return false)
+	            })
+	        })))
+	  (return true))
 
 	(function tick ()
-	  (when (! pause)
-		  (drawFrame)))
+ 	  (if !pause
+ 		  (drawFrame)))
 
-	(function drawFrame ()
-	  (clear)
-	  (drawPaddle)
-	  (set ballX (+ ballX ballVx))
-	  (set ballY (+ ballY ballVy))
-	  (hitHorizontal)
-	  (if (hitVertical)
-	    (do
-	      (circle ballX ballY)
-	      (drawBricks))
-	    (clear)))
+ 	(function drawFrame ()
+ 	  (clear)
+ 	  (drawPaddle)
+ 	  (set ballX (+ ballX ballVx))
+ 	  (set ballY (+ ballY ballVy))
+ 	  (hitHorizontal)
+ 	  (if (hitVertical)
+		  {
+ 	      (circle ballX ballY)
+ 	      (drawBricks)
+		  }
+ 	    (clear)))
 
 	(set window.onload (function (event)
 	  (set canvas (document.getElementById "breakout"))
@@ -151,7 +157,7 @@
 	#if (undefined? transpile.for)
 	  (console.log "transpiling for browser or server not specified")
 
-	</script>
+</script>
 
 </head>
 <body>
