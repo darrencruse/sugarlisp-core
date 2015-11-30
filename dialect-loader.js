@@ -24,7 +24,7 @@ require("sugarlisp-html");
 //require("sugarlisp-css");
 require("sugarlisp-async");
 require("sugarlisp-sugarscript");
-require("sugarlisp-statements");
+require("sugarlisp-csp");
 
 /**
 * load the specified dialect for use in a sugar source file.
