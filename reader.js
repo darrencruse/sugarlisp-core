@@ -103,14 +103,6 @@ function read(source, precedence) {
       break; // stop scanning
     }
 
-// DELETE MAYBE NOT NEEDED?
-    // beforeRead is an optional function that can be used to apply
-    // custom logic to conditionally stop the reading if desired.
-    // if(opSpec.options && opSpec.options.beforeRead &&
-    //   isretryablematch(opSpec.options.beforeRead(source, opSpec, leftForm))) {
-    //     break; // do *not* treat this as an infix/postix operator
-    // }
-
     token = source.next_token();
     leftForm = opSpec.read(source, opSpec, leftForm, sl.atom(token));
   }
@@ -180,10 +172,12 @@ function invoke_read_function(source, options) {
     // be matcher objects (e.g. using regexes)
     var entry = undefined;
     var syntaxval = currDialect.syntax[matchkeys[i]];
+
     // if it's a list of entries the most recent takes precedence
     var firstval = (Array.isArray(syntaxval) ? syntaxval[0] : syntaxval);
     if(typeof firstval === 'function') {
-      if(source.on(matchkeys[i])) {
+      // we "match partial" if this is an operator e.g. "--a" should return "--"
+      if(source.on(matchkeys[i], firstval.operator)) {
         entry = {
           match: matchkeys[i],
           read: syntaxval,
@@ -454,12 +448,6 @@ function read_from_source(codestr, filenameOrSource, options) {
   if(options.setParents !== 'no') {
     forms.setParents();
   }
-
-// DELETE THIS?
-  // reposition unary and infix operators while respecting precedence levels
-  // if(options.applyTransforms !== 'no') {
-  //   applyTreeTransforms(forms);
-  // }
 
   return forms;
 }
@@ -1027,108 +1015,6 @@ function symbol(source, text) {
 }
 
 /**
-* Rearrange snippets of the form tree, e.g. transforming infix
-* operators to prefix form.
-*
-* This feels suspiciously like a generalization of macros, but lispy's
-* macros don't allow their "name" in the middle (as infix operators
-* have) nor do they have any notion of precedence.
-*
-* Instead we allow forms to optionally define a "transform function" and
-* precedence level, and applyTreeTransforms applies them in precedence
-* order (from low to high).
-*
-* These transforms can be defined "statically" e.g. you can say *any* arrow
-* function is an infix operator with precedence level 15 by entering in
-* your syntax table e.g.:
-*
-*    exports['=>'] = reader.infix(15, {altprefix: 'arrowfn'});
-*
-* The second argument is optional - if used it's a way to convey custom
-* options to the transform function. In this case an "alternative prefix"
-* e.g. if the prefix form of array used (arrowfn ...) instead of (=> ...).
-*
-* Alternatively you can define the transforms "dynamically" meaning a syntax
-* function can mark a *particular* form to transformed.  In the code building
-* up it's returned forms it can do e.g.:
-*
-*  var arrowOp = sl.atom('=>', {
-*    transform: ['binaryinfix', reader.infix2prefix, 15, {altprefix: 'arrowfn'}]
-*  });
-*
-* Here reader.infix2prefix is the actual "transform function" to be applied
-* (in the first "static" example reader.infix hid that detail).
-*
-* The transform functions themselves are simply like:
-*
-*  function infix2prefix(operatorform, opts) ...
-*
-* The operatorform is the form marked as an operator to be transformed (i.e.
-* the '=>' form in our example).  The opts are the same opts
-* originally specified (if any).
-*
-* The transform function is allowed (expected!) to modify the form tree.
-* Consider an expression like e.g. "1 * 2 + 3".  It's the job of the transform
-* for "*" to replace "1 * 2" with the list (* 1 2) so it becomes "(* 1 2) + 3".
-* Then the transform for "+" makes transforms it again into "(+ (* 1 2) 3)".
-*
-* Considering the transform function receives the "*" (not the "1"), it will
-* typically use the parent of the form it receives, finds it's position in that
-* parent (e.g. using indexOf) and then splice the (rearranged) list it creates
-* to replace the original forms.
-*
-* note:  this function assumes parents have been set on all operator's forms
-*/
-/*
-OBSOLETE CAN BE DELETED
-function applyTreeTransforms(forms) {
-  // cull a list of just the infix and unary operators from the form tree
-  var opspecs = [];
-  finddeep(forms, function(form, pos, container, dialect) {
-    // note: we do process operators even if they're already in prefix
-    //   position, because they *still* might need (additional) parens, or
-    //   they still might e.g. get translated to an alternate prefix
-    var opSpec = getOperatorSpecFor(form, dialect);
-    if(opSpec) {
-      var opspec = utils.merge(opSpec, {
-        form: form,
-        container: container,
-        line: form.line,
-        col: form.col
-      });
-      opspecs.push(opspec);
-    }
-  });
-
-  // sort the list so we honor the operator precedence levels
-  // note: if precedence levels are equal we do left-to-right
-
-  opspecs.sort(function(a, b) {
-    return (a.precedence < b.precedence ? -1 :
-      (a.precedence > b.precedence ? 1 :
-        (typeof a.line !== 'undefined' && typeof b.line !== 'undefined' ?
-          (a.line < b.line ? -1 :
-            (a.line > b.line ? 1 :
-              (a.col < b.col ? -1 :
-                (a.col > b.col ? 1 : 0)))) : 0)));
-  });
-
-  while(opspecs.length !== 0) {
-    var opspec = opspecs.shift();
-    if(opspec.read) {
-      opspec.read(opspec.form, opspec.options, opspec.container);
-    }
-    else {
-      opspec.form.error("missing transform function for operator: " +
-        sl.valueOf(opspec.form));
-    }
-  }
-
-  return forms;
-}
-*/
-
-/**
 * get the "operator spec" for the form (if any).
 * this is an object of the form e.g.
 *   {
@@ -1165,15 +1051,6 @@ function getOperatorSpecFor(atomOrStr, dialect) {
       opSpec = syntaxfn.operator;
     }
   }
-
-/*
-OLD
-  // check if a transform registered dynamic failed to give a transform at read time:
-  if(atom && opSpec && !opSpec.read && opSpec.style === 'dynamic') {
-    sl.sourceOf(atom).error("The symbol " + sym +
-      " was registered dynamic, but the syntax handler returned a bad transform?");
-  }
-*/
 
   if(opSpec &&
     !opSpec.infix && !opSpec.prefix && !opSpec.postfix)
@@ -1214,7 +1091,10 @@ function operator(optype, argtype, readfn, precedence, opts) {
   opts = opts || {};
   // the read function for all the operators just reads their symbol:
   var syntaxfn = function(source, text) {
-    var token = source.next_token(text);
+    // operators e.g. "--" need to return from e.g. "--x" even
+    // though the "-" has been defined as a non-terminating
+    // character (maybe this can be simplified!!??)
+    var token = source.next_token(text, {matchPartial: true});
     return sl.atom(text, {token: token});
   };
   if(typeof optype === 'string') {
@@ -1264,69 +1144,6 @@ function infix(precedence, opts) {
   return operator('infix', 'binary', infix2prefix, precedence, opts);
 }
 
-/**
-* A tree transformer that translates binary infix operators (e.g. "a + b")
-* to prefix form (i.e. "(+ a b)")
-*/
-/*
-OLD DELETE
-function infix2prefixOld(infixOpForm, opts, container) {
-  opts = opts || {};
-  var altprefix = opts.altinfixprefix || opts.altprefix;
-  var containingList = container || infixOpForm.parent;
-  var listPos = containingList.indexOf(infixOpForm);
-  if(containingList.length === 3) {
-    // they had already parenthesized the infix expression...
-    if(listPos === 1) {
-      // they had already parenthesized the infix expression,
-      // we just need to swap the first two
-      var temp = containingList[0];
-      containingList[0] = containingList[1];
-      containingList[1] = temp;
-      containingList[0].__wasinfix = true;
-    }
-    else if(listPos === 2) {
-      infixOpForm.error("operator " + sl.valueOf(infixOpForm) +
-        " not in infix or prefix position");
-    }
-    if(altprefix) {
-      containingList[0].value = altprefix;
-      containingList[0].__wasinfix = true;
-    }
-  }
-  else if(containingList.length > 3) {
-    // they didn't use parens - make a new parenthesized list
-    var arg1, arg2, startPos;
-    if(listPos > 0) {
-      // it's been used infix
-      startPos = listPos - 1;
-      arg1 = containingList[listPos - 1];
-      arg2 = containingList[listPos + 1];
-    }
-    else {
-      // it's been used prefix
-      startPos = listPos;
-      arg1 = containingList[listPos + 1];
-      arg2 = containingList[listPos + 2];
-    }
-    var fnAtom = altprefix ?
-            sl.atom(altprefix, {token: infixOpForm}) :
-            infixOpForm;
-    fnAtom.__wasinfix = true;
-    var prefixList = sl.list(fnAtom, arg1, arg2);
-    containingList.splice(startPos,3, prefixList);
-    prefixList.parent = containingList;
-  }
-  else if(opts.fallback) {
-    return opts.fallback(infixOpForm, opts, container)
-  }
-  else {
-    infixOpForm.error("binary operator " + sl.valueOf(infixOpForm) +
-                      " requires 2 arguments");
-  }
-}
-*/
-
 function infix2prefix(source, opSpec, leftForm, opForm) {
   // To handle right-associative operators like "^", we allow a slightly
   // lower precedence when parsing the right-hand side. This will let an
@@ -1359,42 +1176,6 @@ function prefix(precedence, opts) {
   return operator('prefix', 'unary', prefix2expr, precedence, opts);
 }
 
-/**
-* A tree transformer that translates a prefix operator (e.g. "!x") to
-* a prefix s-expression (e.g. "(not x)")
-*/
-function prefix2exprOld(prefixOpForm, opts, container) {
-
-  opts = opts || {};
-  var altprefix = opts.altunaryprefix || opts.altprefix;
-
-  var containingList = container || prefixOpForm.parent;
-  var listPos = containingList.indexOf(prefixOpForm);
-  if(containingList.length === 2) {
-    if(listPos !== 0) {
-      prefixOpForm.error("prefix operator " + sl.valueOf(prefixOpForm) +
-        " must be in prefix position");
-    }
-    // they had already parenthesized the prefix expression...
-    if(altprefix) {
-      containingList[0].value = altprefix;
-      containingList[0].text = altprefix;
-    }
-  }
-  else if(containingList.length > 2) {
-    // they didn't use parens - make a new parenthesized list
-    var prefixList = sl.list(altprefix ?
-                              sl.atom(altprefix) : prefixOpForm,
-                              containingList[listPos + 1]);
-    containingList.splice(listPos,2, prefixList);
-    prefixList.parent = containingList;
-  }
-  else {
-    prefixOpForm.error("prefix operator ", sl.valueOf(prefixOpForm),
-                      " requires an argument");
-  }
-}
-
 function prefix2expr(source, opSpec, opForm) {
   var rightForm = read(source, opSpec.precedence);
 
@@ -1421,47 +1202,6 @@ function prefix2expr(source, opSpec, opForm) {
 */
 function postfix(precedence, opts) {
   return operator('postfix', 'unary', postfix2prefix, precedence, opts);
-}
-
-/**
-* A tree transformer that translates a postfix operator (e.g. "x++") to
-* a prefix s-expression (i.e. "(++ x)")
-*/
-function postfix2prefixOld(postfixOpForm, opts, container) {
-
-  opts = opts || {};
-  var altprefix = opts.altunaryprefix || opts.altprefix;
-
-  var containingList = container || postfixOpForm.parent;
-  var listPos = containingList.indexOf(postfixOpForm);
-  if(containingList.length === 2) {
-    if(listPos !== 1) {
-      postfixOpForm.error("postfix operator " + sl.valueOf(postfixOpForm) +
-        " must be in postfix position");
-    }
-    // they had already parenthesized the postfix expression...
-    // make it prefix (equals "lispy"!)
-    var opArg = containingList[0];
-    containingList[0] = containingList[1];
-    containingList[1] = opArg;
-    // but swap a different keyword if they want one:
-    if(altprefix) {
-      containingList[0].value = altprefix;
-      containingList[0].text = altprefix;
-    }
-  }
-  else if(containingList.length > 2) {
-    // they didn't use parens - make a new parenthesized list
-    var postfixList = sl.list(altprefix ?
-                              sl.atom(altprefix) : postfixOpForm,
-                              containingList[listPos - 1]);
-    containingList.splice(listPos-1,2, postfixList);
-    postfixList.parent = containingList;
-  }
-  else {
-    postfixOpForm.error("postfix operator ", sl.valueOf(prefixOpForm),
-                      " should follow it's argument");
-  }
 }
 
 function postfix2prefix(source, opSpec, leftForm, opForm) {
@@ -1604,24 +1344,6 @@ function read_delimited_list(source, start, end, initial, separatorRE) {
       list = list[0];
     }
 
-// THIS CONDITION SEEMINGLY BROKE THE ABILITY TO USE PARENS TO CHANGE
-// THE PRECEDENCE OF OPERATIONS - E.G. THIS BROKE WITH THE BELOW
-//   (x = getit()) !== 'good'
-// it generated:
-//   (x = getit() !== 'good');
-// which because of javascript precedence levels is interpreted wrong like:
-//   (x = (getit() !== 'good'));
-// commented it generates:
-//
-/*
-    else if(list.length === 1 && sl.isList(list[0]) &&
-            list[0].length === 3 && list[0][0].__wasinfix) {
-      // the infix-to-prefix conversion done by the reader is paren-free
-      // this condition means they used parens anyway - splice it into our list
-      var infixlist = list.shift();
-      list = infixlist.concat(list);
-    }
-*/
     source.lastReadList = list;
 
     return list;

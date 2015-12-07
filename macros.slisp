@@ -143,9 +143,8 @@
             ___result))))
     (recur ~@vals)))))
 
- // the list comprehenson for'
- // note "for" is a plain for loop, whereas for' is a comprehension
- (export for' (macro (...rest)
+ // list comprehenson
+ (export list-of (macro (...rest)
   (doMonad arrayMonad ~rest)))
 
  (export first (macro (arr)
@@ -156,39 +155,6 @@
 
  (export empty? (macro (arr)
   (=== 0 ~arr.length)))
-
-;;;;;;;;;;;;;;;;;;;;;; Arithmetic ;;;;;;;;;;;;;;;;;;;;;;;;;
-
-/*
-I DID THIS FOR THE BENEFIT OF "BINDING ASSIGNMENTS" WITH MY HTML example
-BUT ITS BROKEN A SIMPLE USE OF ++ IN THE SNIPPETS.LS example
-THE BELOW TURNS THEM INTO STATEMENTS NOT Expressions
-WHICH WAS A BAD IDEA ANYWAY
-
- (export "++" (macro (operand)
-  (set ~operand (+ ~operand 1))))
-
- (export "--" (macro (operand)
-  (set ~operand (- ~operand 1))))
-*/
-
-;;;;;;;;;;;;;;; Reactive Data Binding ;;;;;;;;;;;;;;;;;;;;;
-
-;; binding assignment
-;;  set a value by calling a function after it's argument changes
-(export #aftersetinlinefn (macro (to reactorfn)
-  (#after (set (#args-get 1 ~@reactorfn)) (set ~to (~reactorfn (#args-get 1 ~@reactorfn))))))
-
-;;  set a value by calling a function before it's argument changes
-(export #beforesetinline (macro (to reactorfn)
-  (#before (set (#args-get 1 ~@reactorfn)) (set ~to (~reactorfn (#args-get 1 ~@reactorfn))))))
-
-(export #afterset (macro (to reactorfn)
-  (#after (set (#args-get 1 ~@reactorfn)) (set ~to ~reactorfn))))
-
-;;  set a value by calling a function before it's argument changes
-(export #beforeset (macro (to reactorfn)
-  (#before (set (#args-get 1 ~@reactorfn)) (set ~to ~reactorfn))))
 
 ;;;;;;;;;;;;;;;;;;;; Callback Sequence ;;;;;;;;;;;;;;;;;;;;;
 
@@ -329,7 +295,7 @@ WHICH WAS A BAD IDEA ANYWAY
   (withMonad ~monad
     (var ____mResult
       (function (___arg)
-        (if? (&& (undefined? ___arg) (! (undefined? mZero)))
+        (if? (&& (undefined? ___arg) !(undefined? mZero))
           mZero
           (mResult ___arg))))
     (m-bind ~bindings (____mResult ~expr)))))

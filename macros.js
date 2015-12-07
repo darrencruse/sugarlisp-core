@@ -356,7 +356,7 @@ exports["loop"] = function(forms) {
   ];
   return this.macroexpand(forms, macrodef);
 };
-exports["for'"] = function(forms) {
+exports["list-of"] = function(forms) {
   var macrodef = ["macro", ["...rest"],
     ["doMonad", "arrayMonad", ["~", "rest"]]
   ];
@@ -382,53 +382,6 @@ exports["rest"] = function(forms) {
 exports["empty?"] = function(forms) {
   var macrodef = ["macro", ["arr"],
     ["===", 0, [".", ["~", "arr"], "length"]]
-  ];
-  return this.macroexpand(forms, macrodef);
-};
-exports["#aftersetinlinefn"] = function(forms) {
-  var macrodef = ["macro", ["to", "reactorfn"],
-    ["#after", ["set", ["#args-get", 1, ["~@", "reactorfn"]]],
-      ["set", ["~", "to"],
-        [
-          ["~", "reactorfn"],
-          ["#args-get", 1, ["~@", "reactorfn"]]
-        ]
-      ]
-    ]
-  ];
-  return this.macroexpand(forms, macrodef);
-};
-exports["#beforesetinline"] = function(forms) {
-  var macrodef = ["macro", ["to", "reactorfn"],
-    ["#before", ["set", ["#args-get", 1, ["~@", "reactorfn"]]],
-      ["set", ["~", "to"],
-        [
-          ["~", "reactorfn"],
-          ["#args-get", 1, ["~@", "reactorfn"]]
-        ]
-      ]
-    ]
-  ];
-  return this.macroexpand(forms, macrodef);
-};
-
-exports["#afterset"] = function(forms) {
-  var macrodef = ["macro", ["to", "reactorfn"],
-    ["#after", ["set", ["#args-get", 1, ["~@", "reactorfn"]]],
-      ["set", ["~", "to"],
-        ["~", "reactorfn"]
-      ]
-    ]
-  ];
-  return this.macroexpand(forms, macrodef);
-};
-exports["#beforeset"] = function(forms) {
-  var macrodef = ["macro", ["to", "reactorfn"],
-    ["#before", ["set", ["#args-get", 1, ["~@", "reactorfn"]]],
-      ["set", ["~", "to"],
-        ["~", "reactorfn"]
-      ]
-    ]
   ];
   return this.macroexpand(forms, macrodef);
 };
@@ -681,9 +634,7 @@ exports["doMonad"] = function(forms) {
     ["withMonad", ["~", "monad"],
       ["var", "____mResult", ["function", ["___arg"],
         ["if?", ["&&", ["undefined?", "___arg"],
-          [
-            ["!", ["undefined?", "mZero"]]
-          ]
+          ["!", ["undefined?", "mZero"]]
         ], "mZero", ["mResult", "___arg"]]
       ]],
       ["m-bind", ["~", "bindings"],

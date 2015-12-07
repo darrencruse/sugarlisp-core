@@ -40,65 +40,6 @@ exports["var"] = function(forms) {
     return transpiled;
 }
 
-function registerBindingCode(forms) {
-  var when = sl.valueOf(forms[0]).substring(1);
-  if (forms.length != 3 || !sl.isList(forms[1]) || forms[1].length < 2)  {
-    forms.error(text + ' expects (cmd argname), (expr to run ' + when + ' transpiling a (cmd argname))');
-  }
-
-  // we key into the bindings with e.g. bindingCode.after.set
-  var source = forms.sourcer;
-  if(!source) {
-    debug('failed to handle ' + sl.valueOf(forms[0]) + ' because no sourcer on passed in forms');
-    this.noSemiColon = true;
-    return sl.transpiled();
-  }
-
-  var cmd = forms[1][0].value;
-  var arg = forms[1][1].value;
-  debug('registering code to be run ' + when + ' a "' + cmd + ' of "' + arg + '"');
-
-  // the arg is the variable they need to have declared as #cell
-  // note: #cell is only done to encourage them to think of these
-  //   variables as global to the file since we have no way to distinguish
-  //   a reference to a variable in one scope from a variable with the same
-  //   name in another (since we're a transpiler not an interpreter)
-  if(source.cells.indexOf(arg) === -1) {
-    console.log('warning: registering "' + when + ' ' + cmd +
-                '" binding code for non-observable "' + arg + '"');
-  }
-
-  // we store for each "cmd" an array of objects of the form:
-  //   { of: "argname", insert: form }
-  // where "of" is the first arg to the cmd (e.g. "set"), and
-  // insert are the lispy forms for the code to insert before/after
-  if(!source.bindingCode[when][cmd]) {
-    source.bindingCode[when][cmd] = [];
-  }
-  source.bindingCode[when][cmd].push({of: arg, insert: forms[2]});
-
-  // we expand to nothing our only job is to register the
-  // code that the main transpiler injects when appropriate
-  this.noSemiColon = true;
-  return sl.transpiled();
-}
-
-exports['#before'] = registerBindingCode;
-exports['#after'] = registerBindingCode;
-
-exports["throw"] = function(forms) {
-    if (forms.length != 2)  {
-      forms.error("missing target to be thrown");
-    }
-    var transpiled = sl.transpiled();
-
-    transpiled.push(sl.isList(forms[1]) ? this.transpileExpression(forms[1]) : forms[1]);
-    transpiled.unshift("(function(){throw ");
-    transpiled.push(";})()");
-
-    return transpiled;
-}
-
 exports["return"] = function(forms) {
     var transpiled = sl.transpiled("return");
     if(forms.length > 1) {
@@ -225,6 +166,19 @@ exports["try"] = function(forms) {
            ind + "} catch (e) {\n" +
            ind + "return (", (sl.isList(c) ? this.transpileExpression(c) : c), ")(e);\n" +
            ind + "}\n" + ind + "})()"])
+
+    return transpiled;
+}
+
+exports["throw"] = function(forms) {
+    if (forms.length != 2)  {
+      forms.error("missing target to be thrown");
+    }
+    var transpiled = sl.transpiled();
+
+    transpiled.push(sl.isList(forms[1]) ? this.transpileExpression(forms[1]) : forms[1]);
+    transpiled.unshift("(function(){throw ");
+    transpiled.push(";})()");
 
     return transpiled;
 }
@@ -401,7 +355,7 @@ exports["#include"] = function(forms) {
 
     this.indent -= this.indentSize;
 
-    var includedforms = reader.read_include_file(filename, forms.sourcer);
+    var includedforms = reader.read_include_file(filename, sl.sourceOf(forms));
     var expanded = this.transpileExpressions(includedforms);
     this.indent += this.indentSize;
 
@@ -460,8 +414,8 @@ exports["do"] = function(forms) {
 
     // make a lispy function expression with the do args as it's body:
     var wrapperfn = sl.list(sl.atom("function"), sl.list())
-    forms.shift(); // get rid of "do"
-    wrapperfn.pushFromArray(forms);
+    // slice(1) below = skip past "do"
+    wrapperfn.pushFromArray(forms.slice(1));
 
     // convert that to javascript
     var transpiled = this.transpileExpression(wrapperfn);
@@ -486,9 +440,135 @@ exports["do"] = function(forms) {
 // generates the code for each expression without
 // wrapping the result in an IIFE (as "do" does)
 exports["begin"] = function(forms) {
-    forms.shift(); // get rid of "begin"
-    return this.transpileExpressions(forms, true);
+    // slice(1) = get rid of "begin"
+    return this.transpileExpressions(forms.slice(1), true);
 }
+
+/**
+* binding assignment i.e.
+*   feedback ##= feedbackmsg(score);
+* For "reactor before" and:
+*   feedback #= feedbackmsg(score);
+* For "reactor after".
+*
+* These bind a "target" to some input "cells" via a "reactor
+* function" (whose arguments are the cells), and keep the
+* target up to date whenever the cells change, by calling
+* the function automatically to get the new target value.
+*
+* These use the generic "#react" (see below) for their implementation.
+*/
+function handleBindingAssignment(forms) {
+  var which = sl.valueOf(forms[0]);
+  if (forms.length != 3)  {
+    forms.error("Binding assignment expects lhs " + which + " rhs");
+  }
+  var target = forms[1];
+  var reactor = forms[2];
+
+  // extract the "cell" arguments
+  // note: the expression may use a call to a named function e.g.:
+  //   feedback #= feedbackmsg(score);
+  // or might use an anonymous function e.g.:
+  //   feedback #= function(score) {if?(score > 9) "You won!" else "Try again."};
+  // or
+  //   feedback #= (score) => {if?(score > 9) "You won!" else "Try again."};
+  var cells;
+  var invokereactorfn;
+  if(sl.valueOf(reactor[0]) === "function" || sl.valueOf(reactor[0]) === "=>") {
+    // grab the args from e.g. (function (score) {...})
+    cells = reactor[1];
+
+    // note here we must create a *call* to the anonymous function
+    // also note the argument name(s) are assumed to *be* the cell variable names
+    invokereactorfn = sl.list(reactor);
+    invokereactorfn.pushFromArray(cells);
+  }
+  else {
+    // slice just the args from e.g. (feedbackmsg score)
+    cells = sl.listFromArray(reactor.slice(1));
+
+    // note here the code provided was already a *call* which is what we need.
+    // also note the argument name(s) are assumed to *be* the cell variable names
+    invokereactorfn = reactor;
+  }
+
+  // We return an s-expression *form* (like a macro) not transpiled js
+  // It uses #react to register code forms inserted (later) by the transpiler
+  // it's like (#react after set (cell1, cell2) (set tgt (reactorfn cell1 cell2)))
+  var registrar = sl.list("#react");
+  registrar.push(which === "#=" ? "after" : "before");
+  // the "mutators" set/++/+=/etc. are in the context to make them easy to change
+  registrar.push(sl.listFromArray(this.mutators));
+  registrar.push(cells);
+  registrar.push(sl.list("set", target, invokereactorfn));
+
+  return registrar;
+}
+
+exports['#='] = handleBindingAssignment;
+exports['##='] = handleBindingAssignment;
+
+/**
+* #react registers code that gets inserted by the transpiler
+* after/before a call that changes one the observed "cells".
+*
+* #react expects: when (fn1,...,fnM) (cell1,...,cellN) reactorcode
+* where
+*  when = "before" or "after"
+*  (fn1,..., fnM) = the names of functions to insert code before or after (e.g. (set,++,*=))
+*  (cell1,...,cellN) = observed cells i.e. the fn arguments we're reacting to changes in
+*  reactorcode = code to be transpiled and run when a cell is modified with an fnX.
+*/
+function registerReactor(forms) {
+  if (forms.length != 5)  {
+    forms.error('#react expects: before/after, fnname, (observed cells), reactorcode');
+  }
+
+  // the word "before" or "after"
+  var when = sl.valueOf(forms[1]);
+  // a list of functions e.g. (set, ++, --)
+  var cmds = forms[2];
+  // a list of cells (arguments to the "cmds")
+  var observed = forms[3];
+  // code to inject when these cmds are invoked on these cells
+  var reactorcode = this.transpileExpression(forms[4]);
+// THIS DEBUG STATEMENT IS DUMPING THE WHOLE FORMS NEED TO PRETTY IT UP TO JUST THE NAMES
+  debug('registering code to be run ' + when + ' one of "' + cmds + ' invoked on "' + observed + '"');
+
+  // observed are the variables they need to declare as #cell
+  // note: #cell is only done to encourage them to think of these
+  //   variables as global to the file since we have no way to distinguish
+  //   a reference to a variable in one scope from a variable with the same
+  //   name in another (since we're a transpiler not an interpreter)
+  var source = sl.sourceOf(forms);
+  observed.forEach(function(cell) {
+    var arg = sl.valueOf(cell);
+    if(source.cells.indexOf(arg) === -1) {
+      console.log('warning: reactor function observes "' + arg +
+                    '" but "' + arg + '" is not a cell');
+    }
+  });
+
+  // we store for each "cmd" an array of objects of the form:
+  //   { of: [observed1, ..., observedN], insert: form }
+  // where "observed" are first args for cmd (e.g. "(set observedX val)"), and
+  // insert is the (already transpiled) js code to insert before/after
+  cmds.forEach(function(cmdAtom) {
+    var cmdName = sl.valueOf(cmdAtom);
+    if(!source.bindingCode[when][cmdName]) {
+      source.bindingCode[when][cmdName] = [];
+    }
+    source.bindingCode[when][cmdName].push({of: observed, insert: reactorcode});
+  });
+
+  // we expand to nothing our only job is to register the
+  // code that the main transpiler injects when appropriate
+  this.noSemiColon = true;
+  return sl.transpiled();
+}
+
+exports['#react'] = registerReactor;
 
 /**
 * quote just returns the form inside it (as data)
@@ -579,8 +659,8 @@ exports["concat"] = function(forms) {
     forms.error("\"cons\" expects an item to prepend and a list");
   }
   var newlist = sl.list();
-  forms.shift(); // get rid of "concat"
-  forms.forEach(function(sublist) {
+  // slice(1) = skip over "concat"
+  forms.slice(1).forEach(function(sublist) {
      if(sl.isList(sublist)) {
        sublist.forEach(function(sublistitem) {
          newlist.push(sublistitem);
@@ -599,10 +679,9 @@ exports["concat"] = function(forms) {
 // when you want to express generated code in
 // lispy form instead of javascript
 exports["codequasiquote"] = function(forms) {
-  forms.shift();
   // transpile the quoted lispy code to javascript
   // (but placeholders e.g. ~obj pass thru in the javascript)
-  var transpiledJsForms = this.transpileExpression(forms[0]);
+  var transpiledJsForms = this.transpileExpression(forms[1]);
   var transpiledJsStr = transpiledJsForms.toString();
   return transpiledJsStr;
 
@@ -630,11 +709,12 @@ var handleCompOperator = function(forms) {
 // DELETE = FOR US IS "SET"    if (forms[0].value == "=") forms[0] = "==="
 // DELETE THIS IS CONFUSING NOW THAT WE ALSO SUPPORT ==, !==    if (forms[0].value == "!=") forms[0] = "!=="
 
-    var op = forms.shift()
+    var op = forms[0];
     var transpiled = sl.transpiled()
 
-    for (i = 0; i < forms.length - 1; i++)
-        transpiled.push([forms[i], " ", op, " ", forms[i + 1]])
+    var argforms = forms.slice(1);
+    for (i = 0; i < argforms.length - 1; i++)
+        transpiled.push([argforms[i], " ", op, " ", argforms[i + 1]])
 
 // to not lose token info our join can't be the standard Array.join
 // the standard Array.join produces a string
@@ -652,7 +732,7 @@ var handleCompOperator = function(forms) {
     //   true === (typeof(var) === "undefined")
     transpiled.unshift('(')
     transpiled.push(')')
-
+    transpiled.callable = false;
     return transpiled;
 }
 
@@ -662,18 +742,18 @@ var handleArithOperator = function(forms) {
     }
     this.transpileSubExpressions(forms)
 
+    var arithAtom = forms[0];
     var op = sl.transpiled()
-    var arithAtom = forms.shift();
     op.push([" ", arithAtom, " "])
 
-    var transpiled = new sl.transpiledFromArray(forms)
+    var transpiled = new sl.transpiledFromArray(forms.slice(1));
     transpiled.join(op)
 
     if(!arithAtom.noparens) {
       transpiled.unshift("(")
       transpiled.push(")")
     }
-
+    transpiled.callable = false;
     return transpiled;
 }
 
@@ -702,6 +782,7 @@ var handleUnaryOperator = function(forms) {
     else {
       transpiled.push([forms[0], sl.valueOf(forms[1])]);
     }
+    transpiled.callable = false;
     return transpiled;
 }
 
@@ -719,6 +800,7 @@ var handleMinusOperator = function(forms) {
     this.transpileSubExpressions(forms)
     var transpiled = sl.transpiled()
     transpiled.push(["-", sl.valueOf(forms[1])]);
+    transpiled.callable = false;
     return transpiled;
 }
 
@@ -760,12 +842,14 @@ exports["&&"] = handleLogicalOperator;
 exports["++"] = handleUnaryOperator;
 exports["post++"] = handleUnaryOperator;
 exports["--"] = handleUnaryOperator;
-exports["post++"] = handleUnaryOperator;
+exports["post--"] = handleUnaryOperator;
 
 exports["!"] = function(forms) {
     if (forms.length != 2) {
       forms.error("\"!\" expects a single expression");
     }
     this.transpileSubExpressions(forms)
-    return "(!" + forms[1] + ")"
+    var result = sl.transpiled("(!" + forms[1] + ")");
+    result.callable = false;
+    return result;
 }

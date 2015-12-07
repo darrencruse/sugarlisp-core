@@ -85,7 +85,7 @@ function atom(value, options) {
 
   // also they can pass just a token if they want
   // (though it better be a string or symbol - we don't type convert)
-  if(!options && value && value.__istoken && value.text) {
+  if(!options && value && isToken(value)) {
     options = {token: value};
     value = value.text;
   }
@@ -131,20 +131,22 @@ function atom(value, options) {
 */
 function str(str, options) {
   var strAtom;
-  if(!isAtom(str)) {
+  if(typeof str === 'string') {
     if(!isQuotedString(str)) {
       str = '"' + str + '"';
     }
     strAtom = atom(str, options);
   }
-  else {
+  else if(isAtom(str, true)) {
     // already an atom - but ensure that it's a *string* atom
     strAtom = str;
     if(!isQuotedString(strAtom.value)) {
       strAtom.value = '"' + strAtom.value + '"';
       strAtom.text = strAtom.value;
     }
-
+  }
+  else {
+    throw Error("Attempt to convert unsupported type " + typeof str + " to a string atom");
   }
   return strAtom;
 }
@@ -197,10 +199,11 @@ function list() {
 */
 function listFromArray(arr) {
 
-  // if arr is really one of our lispy lists - nothing to do:
-  if(isList(arr)) {
-    return arr;
-  }
+  // note the below inadvertantly connected the input forms to the
+  // output transpiled code forms and caused a problem if anonymous
+  // "reactor functions" were used.  But without it - compile times
+  // went thru the roof!!
+  if(isList(arr)) { return arr; }
 
   var thelist = [];
 
@@ -210,6 +213,7 @@ function listFromArray(arr) {
       wrapped = atom(form);
     }
     else {
+//      wrapped = (isList(form) ? arr : listFromArray(form));
       wrapped = listFromArray(form);
     }
     if(!thelist.noparenting) {
@@ -320,7 +324,7 @@ function listFromArray(arr) {
     }
 
     this.forEach(function(form) {
-      if(Array.isArray(form)) {
+      if(Array.isArray(form) && form.setParents) {
         form.setParents(thelist);
       }
     });
@@ -369,6 +373,7 @@ function listFromArray(arr) {
   }
 
   thelist.__islist = true; // is this is a sugarlisp list or just a js array?
+
   return thelist;
 }
 
@@ -422,7 +427,7 @@ function fromJSON(json, into) {
       form.push(fromJSON(elem));
     });
   }
-  else if(isPrimitive(json)) {
+  else if(isPrimitive(json) || (isToken(json) && !isAtom(json))) {
     form = atom(json);
   }
   else if(isList(json) || isAtom(json)) {
@@ -633,16 +638,31 @@ function isList(form) {
 }
 
 /**
- * Returns if the specified value is an atom (wrapped or primitive)
- */
-function isAtom(form) {
+* Returns if the specified value is an atom
+* By default a primitive is considered an atom,
+* pass true as the second arg to say it must
+* be a *wrapped* primitive.
+*/
+function isAtom(form, wrapped) {
   // it's an atom if we've tagged it one:
-  var is = typeof form === 'object' && form.__isatom;
-  // otherwise it's not if it's a list:
-  is = is || !isList(form);
-  // but otherwise we allow primitives as atoms
-  is = is || isPrimitive(form);
+  var is = (typeof form === 'object' && form.__isatom);
+  // but it's not if it's a list:
+  is = is && !isList(form);
+  // by default allow primitives as atoms
+  if(!wrapped) {
+    is = is || isPrimitive(form);
+  }
+
   return is;
+}
+
+/**
+ * Returns if the specified value is a token
+ * note the we "promote" tokens to atoms, so this means
+ * most tokens are also atoms.
+ */
+function isToken(form) {
+  return form.__istoken && form.text;
 }
 
 /**

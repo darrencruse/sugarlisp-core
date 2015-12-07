@@ -608,14 +608,29 @@ Source.prototype.line_with_caret = function(lineStartPosition, column) {
 
 // read the next token (and optionally specify a string or regex matching
 // what you expect the token to be)
-Source.prototype.next_token = function(expected, error) {
+Source.prototype.next_token = function(expected, options) {
   var token;
+  var error;
+  var matchPartial;
+
+  // this is a little tricky since we originally just
+  // took an optional "error" string as second arg.
+  // should clean this up later...
+  if(options) {
+    if(typeof options === 'object') {
+      error = options.error;
+      matchPartial = options.matchPartial;
+    }
+    else if(typeof options === 'string') {
+      error = options;
+    }
+  }
 
   // skip leading whitespace or comments...
   this.skip_filler();
 
   if(expected instanceof RegExp || typeof expected === 'string') {
-    var matched = this.on(expected);
+    var matched = this.on(expected, matchPartial);
     if(matched) {
       // we know exactly what to read:
       this.next_char(matched.length);  // advance the current position

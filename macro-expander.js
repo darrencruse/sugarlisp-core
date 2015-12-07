@@ -47,11 +47,6 @@ exports.expand = function(forms, macrodef) {
       // within the macro simply "~rest" is preferred
       replacements[argname] = argval;
       isrestarg[argname] = true;
-// I SHOULD DELETE THE BELOW (IT ACTUALLY LEADS TO TROUBLE IN evalUnquotedExpression)
-// BUT I NEED TO SEARCH ALL THE MACROS EVERYWHERE FOR USES OF ~<x>...
-      // but for backwards compatibility we still support "~rest..."
-// DELETE      replacements[argname + "..."] = argval;
-// DELETE      isrestarg[argname + "..."] = true;
     } else {
       if (forms.length === i + 1) {
         // we are here if any macro arg is not set
@@ -68,6 +63,7 @@ exports.expand = function(forms, macrodef) {
   // add an indication that we were a macro expansion
   // so the transpiler knows to handle expressions in what we return)
   replaced.__transpiletype = 'macro';
+
   return replaced;
 }
 
@@ -183,8 +179,11 @@ function replaceCode(ctx, forms, expansioncode, replacements, isrestarg) {
 // Handle homoiconic "#args" expressions in macro
 function replaceArgsExpr(ctx, forms, expansioncode, replacements, isrestarg) {
   var macroname = forms[0].value;
+
   var expr_name = expansioncode[0] ? expansioncode[0].value : ""
-  var marker = (expr_name !== "#args-get" ? expansioncode[1].value : expansioncode[2].value);
+  var marker = (expr_name !== "#args-get" ? expansioncode[1].value :
+        expansioncode[2].value ? expansioncode[2].value : expansioncode[2][0].value);
+
   if(marker.charAt(0) === "~") {
     marker = marker.substring(1);
   }
@@ -235,6 +234,7 @@ function replaceArgsExpr(ctx, forms, expansioncode, replacements, isrestarg) {
   if (expr_name === "#args-get") {
     // we have an extra arg compared to the other #args expressions
     var whichArg = expansioncode[1].value;
+
     if (!Array.isArray(replarray)) {
       expansioncode[2].error('can\'t #args-get: invalid argument type in "' + macroname + '"');
     }
@@ -243,6 +243,7 @@ function replaceArgsExpr(ctx, forms, expansioncode, replacements, isrestarg) {
                                 ' in "' + macroname + '"');
     }
     var argVal = replarray[whichArg];
+
     if (typeof argVal === "undefined") {
       expansioncode[2].error("no #args-get: undefined argument at position " + whichArg +
                                 ' in "' + macroname + '"');

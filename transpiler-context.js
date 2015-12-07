@@ -39,6 +39,7 @@ module.exports = {
                   this.noSemiColon = false;
                   return s;
                 },
+  mutators: ["set","++","post++","--","post--","+=","-=","*=","/=","%="],
   beforeCode: [],
   afterCode: []
 };

@@ -202,43 +202,6 @@ function infixdot2prefix(source, opSpec, leftForm, opForm) {
   return sl.list(opForm, leftForm, rightForm);
 }
 
-/**
-* A tree transformer that translates a dot property access i.e. like e.g.
-*   (.log console ~message)
-* but only *after* the operations with lower precedence levels have applied.
-* i.e. in our example the "~" in "~message" is translated to (~ message)
-* *before* we run, which ensure we windup (console.log <message>) not
-* (console.log ~).  These issues become even more important in more complex
-* examples consider e.g. "(.log console ~error.message)" where the precedence
-* of both the "~" and "." come into play.
-*
-* note:  dot property access is mainly for backward compatibility. Feel free
-*   to use infix dot instead i.e. (console.log ~error.message) is absolutely
-*   fine in sugarlisp.
-*/
-/*
-THIS IS OBSOLETE CAN BE DELETED
-function dotptransform(dotpropAtom) {
-  var containingList = dotpropAtom.parent;
-  if(containingList.length !== 3) {
-    if(containingList.length > 3) {
-      // they didn't use parens - make a new parenthesized list
-      // from the dotprop property object part of the parent list
-      var listPos = containingList.indexOf(dotpropAtom);
-      var dotpropList = sl.list(dotpropAtom,
-                              containingList[listPos + 1],
-                              containingList[listPos + 2]);
-      containingList.splice(listPos,3, dotpropList);
-      dotpropList.parent = containingList;
-    }
-    else {
-      dotpropAtom.error("dot property access requires a property and an object");
-    }
-  }
-}
-*/
-// DELETE exports['.'] = reader.infix(1);
-
 // ellipses are used in macros and match patterns to match the "rest"
 // we are using them es6 style meaning they prefix the argument name
 exports['...'] = function(source) {
@@ -436,8 +399,8 @@ exports['~@'] = function(source) {
 // note: unlike lisp, in sugarlisp plain "if" is a *statement*
 exports['if?'] = reader.symbol;
 
-// for' is a list comprehension
-exports["for'"] = reader.symbol;
+// list-of is a list comprehension
+exports["list-of"] = reader.symbol;
 
 // note below are higher precedence than '.'
 exports['~'] = reader.prefix(19.5);
@@ -471,6 +434,9 @@ exports['macro-export'] = reader.symbol;
 exports['#args-if'] = reader.symbol;
 exports['#args-shift'] = reader.symbol;
 exports['#args-second'] = reader.symbol;
+exports['#args-rest'] = reader.symbol;
+exports['#args-get'] = reader.symbol;
+exports['#args-erase-head'] = reader.symbol;
 
 // variable_ is a paren free var -
 //  this is really just a helper function,
@@ -530,7 +496,7 @@ exports['#cell'] = function(source, text) {
   // since sugarlisp doesn't pay attention to the scope of
   // the var statements it transpiles, #cell variable names are
   // considered global to the source file - this list is what's
-  // checked by #before/#after to confirm the variable is a cell:
+  // checked by #react to confirm the variable is a cell:
   var varname = sl.valueOf(varForm[1]);
   if(source.cells.indexOf(varname) === -1) {
     source.cells.push(varname);
@@ -543,15 +509,20 @@ exports['#cell'] = function(source, text) {
 // binding assignment works with bindable vars
 // invoke the reactor function "after" with #=
 // (this is the version I assume would most often be used)
-exports['#='] = reader.infix(7, {altprefix: "#afterset"});
+// OLD DELETE exports['#='] = reader.infix(7, {altprefix: "#afterset"});
+exports['#='] = reader.infix(7);
 // invoke the reactor function "before" with ##=
-exports['##='] = reader.infix(7, {altprefix: "#beforeset"});
+// OLD DELETE exports['##='] = reader.infix(7, {altprefix: "#beforeset"});
+exports['##='] = reader.infix(7);
 
 exports['\\'] = reader.unexpected;
 
 // originally I had "?->" (thinking some macros are like e.g. num->string)
 // the ">" caused trouble for the html dialect so it's been removed
-exports.__nonterminatingchars = "?-";
+// and the "-" causes trouble with pre and post decrement "--" so that's
+// been removed too!!!
+//exports.__nonterminatingchars = "?-";
+exports.__nonterminatingchars = "?";
 
 /**
 * The default read function used when nothing in
