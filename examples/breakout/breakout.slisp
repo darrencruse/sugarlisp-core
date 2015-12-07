@@ -60,11 +60,11 @@
 
 (function hitHorizontal ()
   (if (|| (< ballX 0) (> ballX canvas.width))
-    (set ballVx -ballVx)))
+    (set ballVx (- ballVx))))
 
 (function hitVertical ()
   (if (< ballY 0)
-    (set ballVy -ballVy)
+    (set ballVy (- ballVy))
     (if (< ballY (* brickHeight bricksNumY))
       {
         (var bx (Math.floor (/ ballX brickWidth)))
@@ -73,7 +73,7 @@
           (if (get bx (get by bricks))
             {
               (set bx (get by bricks) false)
-              (set ballVy -ballVy)
+              (set ballVy (- ballVy))
             }))
       }
       (if (>= ballY (- canvas.height paddleHeight))
@@ -81,7 +81,7 @@
           (var paddleLeft (- paddleX (/ paddleWidth 2)))
           (var paddleRight (+ paddleX (/ paddleWidth 2)))
           (if (&& (>= ballX paddleLeft) (<= ballX paddleRight))
-            (set ballVy -ballVy)
+            (set ballVy (- ballVy))
             {
               (init)
               (return false)

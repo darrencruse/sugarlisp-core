@@ -40,7 +40,7 @@ var requestHandler = function(request, response) {
           throw "Call to (next) beyond sequence.";
         })());
     };
-    return (next())();
+    return (next()());
   })();
 };
 

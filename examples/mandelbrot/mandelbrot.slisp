@@ -49,9 +49,9 @@
       (var calc
         (mandelbrot
           (+ (/ (* params.range r) canvas.width)
-            (half -params.range) params.r)
+            (half (- params.range)) params.r)
           (+ (/ (* params.range i) canvas.height)
-            (half -params.range) params.i)
+            (half (- params.range)) params.i)
           params.maxIter))
       (set ctx.fillStyle (color calc))
       (ctx.fillRect r i 1 1))))

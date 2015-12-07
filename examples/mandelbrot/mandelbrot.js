@@ -14,7 +14,7 @@ function mandelbrot(r, i, maxIter) {
   var loop = 1;
   var lr = 0;
   var li = 0;
-  while (((!((iter === maxIter) || ((lr === zr) && (li === zi)) || (4 <= (zr_sq + zi_sq)))))) {
+  while ((!((iter === maxIter) || ((lr === zr) && (li === zi)) || (4 <= (zr_sq + zi_sq))))) {
     ++iter;
     if ((loop === iter)) {
       lr = zr;

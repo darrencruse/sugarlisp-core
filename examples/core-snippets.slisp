@@ -94,13 +94,13 @@
 // a traditional javascript switch statement
 (var dayName)
 (switch dayNum
-  0 { (= dayName "sun") break }
-  1 { (= dayName "mon") break }
-  2 { (= dayName "tues") break }
-  3 { (= dayName "wed") break }
-  4 { (= dayName "thu") break }
-  5 { (dayName "fri") break }
-  default { (= dayName "sat") break })
+  0 { (= dayName "sun") (break) }
+  1 { (= dayName "mon") (break) }
+  2 { (= dayName "tues") (break) }
+  3 { (= dayName "wed") (break) }
+  4 { (= dayName "thu") (break) }
+  5 { (dayName "fri") (break) }
+  default { (= dayName "sat") (break) })
 (console.log "switch says today is ${dayName}")
 
 ;; a simple case
@@ -138,8 +138,8 @@
 (each [1, 2, 3] (function (elem i list) (console.log elem)))
 
 ;; a list comprehension
-(console.log "a for' comprehension of ['a','b','c'] with [3,4,5]")
-(console.log (for'
+(console.log "a list comprehension of ['a','b','c'] with [3,4,5]")
+(console.log (list-of
   (letters ['a', 'b', 'c']
    numbers [3, 4, 5])
   [letters, numbers]))

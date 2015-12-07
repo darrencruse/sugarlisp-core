@@ -156,14 +156,14 @@ console.log("an each loop (1 to 3)");
 ].forEach(function(elem, i, list) {
   console.log(elem);
 });
-console.log("a for' comprehension of ['a','b','c'] with [3,4,5]");
+console.log("a list comprehension of ['a','b','c'] with [3,4,5]");
 console.log((function(___monad) {
   var mBind = ___monad.mBind,
     mResult = ___monad.mResult,
     mZero = ___monad.mZero,
     mPlus = ___monad.mPlus;
   var ____mResult = function(___arg) {
-    return (((typeof(___arg) === "undefined") && ((!(typeof(mZero) === "undefined")))) ?
+    return (((typeof(___arg) === "undefined") && (!(typeof(mZero) === "undefined"))) ?
       mZero :
       mResult(___arg));
   };
