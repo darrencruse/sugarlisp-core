@@ -3,7 +3,7 @@
  */
 
 var reader = require('sugarlisp-core/reader'),
-    sl = require('./types'),
+    sl = require('./sl-types'),
     utils = require('./utils'),
     debug = require('debug')('sugarlisp:core:keywords:info'),
     trace = require('debug')('sugarlisp:core:keywords:trace');

@@ -4,7 +4,7 @@
  */
 
 var macros = require('./macro-expander'),
-    sl = require('./types'),
+    sl = require('./sl-types'),
     debug = require('debug')('sugarlisp:core:keywords:info'),
     trace = require('debug')('sugarlisp:core:keywords:trace');
     match = require('sugarlisp-match/pattern-match');
@@ -143,7 +143,7 @@ exports["export"] = function(forms) {
 };
 
 /*
- * set started compiled sugarlisp code, but got pulled in
+ * set started as compiled sugarlisp code, but got pulled in
  * here to avoid some chicken-and-egg issues
  */
 function handleSet(setFnName) {

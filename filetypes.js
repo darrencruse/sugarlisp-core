@@ -1,16 +1,16 @@
-// which dialects should be automatically "used"
+// which dialects should be automatically "#used"
 // in a file with the given extension?
 //
 // note: the order is the same as #uses in an actual
 //  file (i.e. later ones override the earlier ones)
 module.exports = {
   // "code" formats
-  slisp: ['core'],
-  ls: ['core'],
-  sugar: ['core', 'sugarscript'],
+  score: ['core'],
+  slisp: ['core', 'plus'],
+  sugar: ['core', 'plus', 'sugarscript'],
 
   // "data" formats
-  slson: ['core'],
-  slml: ['core', 'html'],
-  slss: ['core', 'css']
+  slson: ['core', 'plus'],
+  slml: ['core', 'plus', 'html'],
+  slss: ['core', 'plus', 'css']
 };

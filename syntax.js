@@ -1,6 +1,5 @@
-var sl = require('./types'),
+var sl = require('./sl-types'),
     reader = require('./reader'),
-    rfuncs = require('./readfuncs'),
     utils = require('./utils'),
     ctx = require('./transpiler-context');
 
@@ -28,6 +27,88 @@ exports['__core_integer'] = {
       return sl.atom(parseInt(token.text,10), {token: token});
     }
 };
+
+// core supports simple quoted strings
+// (plus supports templated strings with ${} escapes)
+function handleSimpleString(source, quoteChar) {
+  return reader.read_delimited_text(source, quoteChar, quoteChar);
+};
+exports['\''] = handleSimpleString;
+exports['\"'] = handleSimpleString;
+exports['`'] = handleSimpleString;
+
+exports["null"] = function(source) {
+  return sl.atom(null, {token: source.next_token("null")});
+};
+
+exports["nil"] = function(source) {
+  return sl.atom(null, {token: source.next_token("nil")});
+},
+
+exports["true"] = function(source) {
+  return sl.atom(true, {token: source.next_token("true")});
+};
+
+exports["false"] = function(source) {
+  return sl.atom(false, {token: source.next_token("false")});
+};
+
+// ellipses are used in macros and match patterns to match the "rest"
+// we are using them es6 style meaning they prefix the argument name
+exports['...'] = function(source) {
+  // we just put it back together as a single atom:
+  var ellipsisToken = source.skip_token('...');
+  var argnameToken = source.next_word_token();
+  return sl.atom('...' + argnameToken.text, {token: ellipsisToken});
+};
+
+// parenthesized list expressions
+exports['('] = function(source) {
+  return reader.read_delimited_list(source);
+};
+// read_delimited_list consumes the ending ")"
+// so we don't expect it to be read thru the syntax table
+exports[')'] = reader.unexpected;
+
+exports[':'] = reader.unexpected;
+
+exports[','] = reader.unexpected;
+
+// '=' is an alias for 'set'
+// (we treat 'get' and 'set' as our core commands for
+// manipulating variables - everything else is syntax sugar)
+exports['='] = reader.symbolAlias('set');
+
+// arrow functions (in core only prefix though e.g. (=> (x) (* x x))
+exports['=>'] = reader.symbol;
+
+// method chaining
+exports['->'] = reader.symbol;
+
+// if? is the if expression (like a javascript ternary)
+// note: unlike lisp, in sugarlisp plain "if" is a *statement*
+exports['if?'] = reader.symbol;
+
+// list-of is a list comprehension
+exports["list-of"] = reader.symbol;
+
+// '-' is a terminating char so declare these explicitly
+exports['template-repeat-key'] = reader.symbol;
+exports['template-repeat'] = reader.symbol;
+exports['m-bind'] = reader.symbol;
+exports['macro-export'] = reader.symbol;
+
+// '#' is a terminating char so declare these explicitly
+exports['#args-if'] = reader.symbol;
+exports['#args-shift'] = reader.symbol;
+exports['#args-second'] = reader.symbol;
+exports['#args-rest'] = reader.symbol;
+exports['#args-get'] = reader.symbol;
+exports['#args-erase-head'] = reader.symbol;
+
+exports['\\'] = reader.unexpected;
+
+// compiler directives //////////////////////////////////////////////////
 
 // use a dialect i.e. a "language extension"
 // note: the main reason things like #use and #transpile are in the
@@ -121,401 +202,6 @@ exports['#include'] = reader.parenfree(1);
 // to run time).  It uses the require path as opposed to
 // lispy's separate include path.
 exports['#require'] = reader.parenfree(1);
-
-exports["null"] = function(source) {
-  return sl.atom(null, {token: source.next_token("null")});
-};
-
-exports["nil"] = function(source) {
-  return sl.atom(null, {token: source.next_token("nil")});
-},
-
-exports["true"] = function(source) {
-  return sl.atom(true, {token: source.next_token("true")});
-};
-
-exports["false"] = function(source) {
-  return sl.atom(false, {token: source.next_token("false")});
-};
-
-// the dot operator for property lookup
-/*
-OLD ONE TO BE DELETED
-exports['.'] = function(source) {
-  var form;
-  // Are we *already* in prefix position?
-  if(!source.lastReadFormInList) {
-    // yes - they're using the form (.y x)
-    // (there's transpiler code that recognizes ".y" specially)
-    var dotToken = source.skip_token('.');
-    var dotPropToken = source.next_word_token();
-    form = sl.atom('.' + dotPropToken.text, {token: dotToken});
-  }
-  else {
-    // nope - swap (x . y) to (. x y)
-    // (there's a "." keyword that generates js code x.y)
-    form = reader.infixtoprefix(source, '.');
-  }
-
-  return form;
-};
-*/
-
-// DELETE exports['.'] = reader.infix(1);
-
-// the infix dot operator for property lookup
-// note that we encourage use of infix dot since it's so familiar
-// to javascript programmers i.e. (console.log "hello"), but for
-// backward compatibility with lispyscript 1 (and other lisps
-// which have similar constructs), this also accepts property prefix
-// forms like e.g. (.log console "hello").  Since we normally consider
-// . an infix operator though - to get the "property prefix" version
-// you *must* omit the space between the "." and the property.  Which
-// is to say "(.log console)" represents "console.log", but
-// "(. log console)" (note the space after the dot) represents
-// "log.console".
-//
-// lastly notice we leave infix "." as "." but we change dot property
-// access to a different prefix "dotprop".  So console.log becomes
-// (. console log) but .log console becomes (dotprop log console)
-
-
-exports['.'] = reader.operator({
-  prefix: reader.operator('prefix', 'unary', dotpropexpr, 5),
-  infix: reader.operator('infix', 'binary', infixdot2prefix, 19)
-});
-
-function dotpropexpr(source, opSpec, dotOpForm) {
-  var propertyNameToken = source.next_token();
-  var objectForm = reader.read(source, opSpec.precedence);
-  return sl.list('dotprop', propertyNameToken, objectForm);
-}
-
-function infixdot2prefix(source, opSpec, leftForm, opForm) {
-  // To handle right-associative operators like "^", we allow a slightly
-  // lower precedence when parsing the right-hand side. This will let an
-  // operator with the same precedence appear on the right, which will then
-  // take *this* operator's result as its left-hand argument.
-  var rightForm = reader.read(source,
-      opSpec.precedence - (opSpec.assoc === "right" ? 1 : 0));
-
-  return sl.list(opForm, leftForm, rightForm);
-}
-
-// ellipses are used in macros and match patterns to match the "rest"
-// we are using them es6 style meaning they prefix the argument name
-exports['...'] = function(source) {
-  // we just put it back together as a single atom:
-  var ellipsisToken = source.skip_token('...');
-  var argnameToken = source.next_word_token();
-  return sl.atom('...' + argnameToken.text, {token: ellipsisToken});
-};
-
-// parenthesized list expressions
-exports['('] = function(source) {
-  return reader.read_delimited_list(source);
-};
-// read_delimited_list consumes the ending ")"
-// so we don't expect it to be read thru the syntax table
-exports[')'] = reader.unexpected;
-
-// square bracketed arrays of data
-exports['['] = function(source) {
-  return rfuncs.read_array(source);
-};
-// end brackets are read as token via the function above
-// (so they're not expected to be read via the syntax table)
-exports[']'] = reader.unexpected;
-
-// javascript object literals
-exports['{'] = function(source) {
-  return rfuncs.read_objectliteral_or_codeblock(source);
-};
-exports['}'] = reader.unexpected;
-
-exports[':'] = reader.unexpected;
-
-exports[','] = reader.unexpected;
-
-// templated strings with ${} escapes
-// unlike es6 we let them work within all of ', ", or `
-// if no ${} are used it winds up a simple string
-// but when ${} are used the result is a (str...)
-exports['\''] = function(source) {
-  return rfuncs.read_template_string(source, "'", "'", ['str']);
-};
-
-exports['\"'] = function(source) {
-  return rfuncs.read_template_string(source, '"', '"', ['str']);
-};
-
-// es6 template string literal
-exports['`'] = function(source) {
-  // a template string surrounded in backticks becomes (str...)
-  return rfuncs.read_template_string(source, "`", "`", ['str']);
-};
-
-// arrow functions
-// note precedence level less than "=" so e.g. "fn = (x) => x * x" works right
-// also note this was originally just exports['=>'] = reader.infix(12.5);
-// but the below was done to simplify the generated code and avoid one IIFE
-// OLD exports['=>'] = reader.operator(arrowFnTransform, 7.5, 'infix', 'binary');
-exports['=>'] = reader.operator('infix', 'binary', arrow2prefix, 7.5);
-
-function arrow2prefix(source, opSpec, argsForm, arrowOpForm) {
-
-  var fBody = reader.read(source, opSpec.precedence);
-  if(sl.isList(fBody) && sl.valueOf(fBody[0]) === 'do') {
-    fBody[0].value = "begin";
-  }
-
-  return sl.list(arrowOpForm, argsForm, fBody);
-}
-
-// regexes in the form #/../
-// this is a shorthand for (regex "(regex string)")
-// note this is close to javascript's "/" regexes except for starting "#/"
-// the initial "#" was added to avoid conflicts with "/"
-// (the "#" is optional in *sugarscript* btw)
-exports['#/'] = function(source, text) {
-  // desugar to core (regex ..)
-  return sl.list("regex",
-                sl.addQuotes(sl.valueOf(rfuncs.read_delimited_text(source, "#/", "/",
-                  {includeDelimiters: false}))));
-}
-
-// coffeescript style @ (alternative to "this.")
-exports['@'] = function(source) {
-  source.skip_text('@');
-  var nextForm = reader.read(source);
-  if(sl.isList(nextForm) && sl.typeOf(nextForm[0]) === 'symbol') {
-    // this is losing the original line/col - need to correct
-    nextForm[0] = sl.atom("this." + nextForm[0].value);
-  }
-  else if(sl.typeOf(nextForm) === 'symbol') {
-    // this is losing the original line/col - need to correct
-    nextForm = sl.atom("this." + nextForm.value);
-  }
-  else {
-    source.error("@ must precede the name of some object member");
-  }
-
-  // we've read the next form and prefixed it with "this.":
-  return nextForm;
-}
-
-// lispy quasiquoted list
-// THIS STILL HAS WORK TO DO - IT'S REALLY JUST AN ALIAS FOR [] RIGHT NOW
-//
-// these use ` like a traditional lisp except they are bookended
-// on both ends i.e. `(...)`.  It felt odd to do otherwise because
-// all our other (string) quoting follows javascript conventions
-// so has them on both ends.
-//
-// note we *only* support the quasiquoting of lists.
-//
-// since we also support es6 template string literals which use
-// `` to quote them, the paren in `( distinguish a quasiquoted
-// list *form* from a standard es6 template *string*.
-//
-// If people need to quote a *string* that starts with ( they
-// should just use '(...)' or "(...)" instead.
-//
-exports['`('] = function(source) {
-  return reader.read_delimited_list(source, '`(', ')`', ["quasiquote"]);
-};
-exports[')`'] = reader.unexpected
-
-// this may be temporary it's just an alias for arrays []
-// (it should be just a normal quoted list - working on that)
-exports['``('] = function(source) {
-  return reader.read_delimited_list(source, '``(', ')``', ["array"]);
-};
-exports[')``'] = reader.unexpected
-
-// a js code template (javascript string with substitutions) is
-// surrounded in triple double-quotes
-exports['"""'] = function(source) {
-  var forms = rfuncs.read_template_string(source, '"""', '"""', ['code']);
-  // read_template_string converts to a normal string if there's only one:
-  if(!sl.isList(forms)) {
-    forms = sl.list('code', forms);
-  }
-  return forms;
-};
-
-// a lispy code template (lispy code with substitutions) is
-// surrounded in triple single-quotes
-exports["'''"] = function(source) {
-  return reader.read_delimited_list(source, "'''", "'''", ["codequasiquote"]);
-};
-
-// Gave unquotes an extra ~ for now while I get them working
-// (so they wouldn't break the macros)
-exports['~~'] = function(source) {
-  source.skip_text('~~');
-  return sl.list('unquote', reader.read(source));
-};
-
-exports['~~@'] = function(source) {
-  source.skip_text('~~@');
-  return sl.list('splice-unquote', reader.read(source));
-};
-
-// Make sure '~' and '~@' are read *with* what follows them
-// i.e. "~arg", "~@list" should be read as single tokens not multiple
-// note: javascript bitwise not "~" is not supported yet.
-/*
-exports['~'] = function(source) {
-  var form;
-  // a rest... style marker
-  // if(source.on(/~@?(?:\.\.\.)?[_a-zA-Z]+[_a-zA-Z0-9]*(?:\.\.\.)?/g)) {
-  //   var nextToken = source.next_token(/~@?(?:\.\.\.)?[_a-zA-Z]+[_a-zA-Z0-9]*(?:\.\.\.)?/g);
-  //   form = sl.atom(nextToken);
-  // }
-  // // a regular marker with up to two (optional) sub-properties e.g. ~attr.elem.value
-  // else if(source.on(/~@?[_a-zA-Z]+\.?[_a-zA-Z0-9]*\.?[_a-zA-Z0-9]*XXXX/g)) {
-  //   var nextToken = source.next_token(/~@?[_a-zA-Z]+\.?[_a-zA-Z0-9]*\.?[_a-zA-Z0-9]*XXXX/g);
-  //   form = sl.atom(nextToken);
-  // }
-  // else {
-    // var nextToken = source.next_token('~');
-    // form = sl.atom(nextToken);
-  // }
-/* DELETE THIS COMMENT
-  var unquoteToken = source.next_token('~');
-  form = sl.list(sl.atom(unquoteToken), reader.read(source, {noinfix: true}));
-
-  return form;
-}
-
-exports['~@'] = function(source) {
-  var splicingUnquoteToken = source.next_token('~@');
-  return sl.list(sl.atom(splicingUnquoteToken), reader.read(source));
-}
-*/
-
-// if? is the if expression (like a javascript ternary)
-// note: unlike lisp, in sugarlisp plain "if" is a *statement*
-exports['if?'] = reader.symbol;
-
-// list-of is a list comprehension
-exports["list-of"] = reader.symbol;
-
-// note below are higher precedence than '.'
-exports['~'] = reader.prefix(19.5);
-exports['~@'] = reader.prefix(19.5);
-
-// although basic "word-style" (whitespace) delimiting
-// works well in lispy core, declaring symbols explicitly
-// avoids problems arising with the syntax sugar of lispy+
-exports['!'] = reader.prefix(18, {assoc: "right"});
-exports['->'] = reader.symbol;
-
-// ++i and i++
-exports['++'] = reader.operator({
-  prefix: reader.prefix(17, {assoc:"right"}),
-  postfix: reader.postfix(18, {altprefix: "post++"})
-});
-
-// --i and i--
-exports['--'] = reader.operator({
-  prefix: reader.prefix(17, {assoc:"right"}),
-  postfix: reader.postfix(18, {altprefix: "post--"})
-});
-
-// '-' is a terminating char so declare these explicitly
-exports['template-repeat-key'] = reader.symbol;
-exports['template-repeat'] = reader.symbol;
-exports['m-bind'] = reader.symbol;
-exports['macro-export'] = reader.symbol;
-
-// '#' is a terminating char so declare these explicitly
-exports['#args-if'] = reader.symbol;
-exports['#args-shift'] = reader.symbol;
-exports['#args-second'] = reader.symbol;
-exports['#args-rest'] = reader.symbol;
-exports['#args-get'] = reader.symbol;
-exports['#args-erase-head'] = reader.symbol;
-
-// variable_ is a paren free var -
-//  this is really just a helper function,
-//  it's used by #cell below as well as
-//  by "var" in scripty
-// NO LONGER USING THIS IN SCRIPTY NOW THAT I SUPPORT multiple
-// COMMA SEPARATED VARS - NEED TO SEE IF IT MAKES SENSE TO MERGE
-// THEM TOGETHER NOT SURE YET
-
-exports['variable_'] = function(source, text) {
-  var varToken = source.next_token(text);
-  var varNameToken = source.next_token();
-  var varNameSym = sl.atom(varNameToken);
-
-// SEEING IF I CAN SIMPLIFY THIS BACK TO ALLOWING SIMPLE ARRAYS
-// MY THOUGHT WAS SIMPLY THAT IMMEDIATELY UPON THE
-// READER RECEIVING THE RETURN VALUE FROM CALLING THESE
-// SYNTAX FUNCTIONS IT CHECKS IF IT'S GOT AN ARRAY RATHER
-// THAN A lists.List TYPE, AND IF SO IT CALLS lists.fromArray()
-// TO PROMOTE THE ARRAY TO A LIST.  AS PART OF THAT IT
-// IS ALSO GOING TO HAVE TO PROMOTE ALL THE PRIMITIVES TO
-// BEING WRAPPED - *IF* I NEED TO ALSO IMMEDIATELY SET
-// PARENTS TOO.  BUT IS THAT NEEDED?  COULD I GET BY
-// WITH SAYING PARENTS ARE ONLY AVAILABLE IN THE keyword
-// FUNCTIONS NOT THE READER FUNCTIONS?  BUT I DO USE PARENTS
-// TO FIND SURROUNDING LOCAL DIALECTS RIGHT?  IF THERE any
-// WAY THIS COULD HAVE WORKED DIFFERENTLY?  WHAT IF I'D done
-// THE "ENVIRONMENT" IDEA LIKE AN INTERPRETER WOULD?  COULD
-// THE "DIALECTS" HAVE BEEN TREATED LIKE A VAR IN THE "ENVIRONMENT"
-// *INSTEAD* OF ON THE "FORMS"??
-  var list = sl.list(sl.atom("var", {token: varToken}), sl.atom(varNameToken));
-  // if(source.on('=')) {
-  //   // it's got an initializer
-  //   source.skip_text('=');
-  //   list.push(reader.read(source));
-  // }
-  // else {
-  //   list.push("undefined");
-  // }
-
-  return list;
-};
-
-// cells can cause reactions when their values change
-// a cell can be declared via:
-//
-//    #cell name
-// or
-//    #cell name = val
-//
-// (note right now you can only declare one variable per #cell statement)
-exports['#cell'] = function(source, text) {
-  // #cell is like "var" except it records the var as observable
-  // so start by making a normal "var" form list i.e. (var varname...)
-  var varForm = exports["variable_"](source, text);
-
-  // since sugarlisp doesn't pay attention to the scope of
-  // the var statements it transpiles, #cell variable names are
-  // considered global to the source file - this list is what's
-  // checked by #react to confirm the variable is a cell:
-  var varname = sl.valueOf(varForm[1]);
-  if(source.cells.indexOf(varname) === -1) {
-    source.cells.push(varname);
-  }
-
-  // return the var form so a "var" statement winds up in the output code
-  return varForm;
-};
-
-// binding assignment works with bindable vars
-// invoke the reactor function "after" with #=
-// (this is the version I assume would most often be used)
-// OLD DELETE exports['#='] = reader.infix(7, {altprefix: "#afterset"});
-exports['#='] = reader.infix(7);
-// invoke the reactor function "before" with ##=
-// OLD DELETE exports['##='] = reader.infix(7, {altprefix: "#beforeset"});
-exports['##='] = reader.infix(7);
-
-exports['\\'] = reader.unexpected;
 
 // originally I had "?->" (thinking some macros are like e.g. num->string)
 // the ">" caused trouble for the html dialect so it's been removed

@@ -3,7 +3,7 @@
  */
 
 var isArgsExpr = /^#args-if\b|^#args-shift\b|^#args-erase-head\b|^#args-rest\b|^#args-second\b|^#args-get\b/,
-  sl = require('./types'),
+  sl = require('./sl-types'),
   reader = require('./reader'),
   src = require('./source'),
   utils = require('./utils'),

@@ -734,7 +734,8 @@ Source.prototype.peek_word_token = function() {
 
 /**
 * scan and return some delimited text
-* source.options.omitDelimiters = whether to include the include the delimiters or not
+* source.options.includeDelimiters = whether to include the include the
+* delimiters or not (defaults to omitting the delimiters)
 */
 Source.prototype.next_delimited_token = function(start, end, options) {
   options = options || this.options || {};

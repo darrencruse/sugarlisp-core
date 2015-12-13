@@ -1,0 +1,201 @@
+;;;
+;;; Some example SugarLisp Core dialect code snippets
+;;;
+;;; note in sugarlisp all dialects desugar to "core"
+;;; e.g. this file was initially created via:
+;;;
+;;;    sugar --to core plus-snippets.slisp core-snippets.core
+;;;
+;;; (see plus-snippets.slisp in the examples for sugarlisp-plus)
+;;;
+
+;; simple "." for property access:
+((. console log) "Hello World!")
+
+;; a macro to make the rest read a little better
+(macro println (...rest)
+  ((. console log) (~ rest)))
+
+;; a simple anonymous function
+(var square (function (n)
+  (* n n)))
+(println (square 10))
+
+;; a simple named function
+(function myadd (x, y)
+  (+ x y))
+
+;; if statement
+(if (undefined? window)
+  (println "Not Running on browser")
+  (println "Running on browser"))
+
+;; if expressions
+(println "1 and 2 are" (if? (!== 1 2) "not equal" "equal"))
+(println "console is" (if? (object? console) "an object" "not an object"))
+(println "console is" (if? (array? console) "an array" "not an array"))
+
+// arrays
+(var arr (array 1 2 3))
+(println "for array:" arr)
+(println "first is:" (first arr))
+(println "rest is:" (rest arr))
+
+// with commas (treated same as white space)
+(var arrComma (array 1 2 3))
+
+// js-style array access:
+(println "arr[2] is " (get 2 arrComma))
+
+// empty array
+(var mtarr2 (array))
+(println "empty array is empty:" (empty? mtarr2))
+
+;; macros
+(macro mylet (args vals ...rest)
+  ((function (~ args) (~ rest)) (~@ vals)))
+
+(mylet (name email tel) ("John" "john@example.com" "555-555-5556")
+  (println name)
+  (println email))
+
+;; (begin...) lets you use multiple statements/expressions as a single one:
+(begin
+  (println "code block first expr")
+  (println "code block second expr"))
+
+// javascript objects
+(var obj (object
+  first "fred"
+  last "flintstone"
+  friends (array "barney" "betty")
+  toString (function ()
+            (str (. this first) " " (. this last)))))
+(println ((. obj toString)))
+
+// Test of arrow functions
+(var arr (array 1 2 3 4))
+((. arr forEach) (=> (el) (println el)))
+
+// testing lexical this
+(function Ubertest (x)
+  (begin
+    (set (. this x) x)
+    (function Test (x)
+      (begin
+        (set (. this x) x)
+        (var arr (array 1 2 3))
+        ((. arr forEach)
+          (=> (el) (println (. this x) el)))))
+    (var arr (array 'a' 'b' 'c'))
+    ((. arr forEach)
+      (=> (el) (new Test (str (. this x) " " el))))))
+(new Ubertest "Uber")
+
+// use of new
+(var todayDate (new Date))
+(println (new Date "October 13, 1975 11:13:00"))
+
+(var dayNum ((dotprop getDay todayDate)))
+(println dayNum)
+
+// a traditional javascript switch statement
+(var dayName)
+(switch dayNum 0
+  (begin
+    (set dayName "sun")
+    (break)) 1
+  (begin
+    (set dayName "mon")
+    (break)) 2
+  (begin
+    (set dayName "tues")
+    (break)) 3
+  (begin
+    (set dayName "wed")
+    (break)) 4
+  (begin
+    (set dayName "thu")
+    (break)) 5
+  (begin
+    (dayName "fri")
+    (break)) default
+  (begin
+    (set dayName "sat")
+    (break)))
+(println (str "switch says today is " dayName))
+
+;; a simple case
+(var dayName
+  (case dayNum 0 "sun" 1 "mon" 2 "tues" 3 "wed" 4 "thu" 5 "fri" 6 "sat"))
+(println (str "case says today is " dayName))
+
+;; a simple cond
+(var dayMsg (cond
+  (=== dayNum 5) "tgif!!"
+  (||
+    (=== dayNum 0)
+    (=== dayNum 6)) "yahoo it's the weekend!" true "blech gotta work today it's a weekday"))
+(println (str "cond says about today: " dayMsg))
+
+;; a simple while loop
+;; note the while body is whatever expressions follow the condition
+(println 'a while loop (5 downto 1)')
+(var wx 5)
+(while (!= wx 0)
+  (println wx)
+  (post-- wx))
+(println "an each loop (1 to 3)")
+
+;; a simple times loop
+(println 'a 4 "dotimes" loop (0 to 3)');
+(dotimes (tx, 4)
+  (println tx))
+
+(println "an each loop (1 to 3)")
+(each
+  (array 1 2 3)
+  (function (elem i list)
+    (println elem)))
+
+;; a list comprehension
+(println "a list comprehension of ['a','b','c'] with [3,4,5]")
+(println (list-of (letters (array 'a' 'b' 'c') numbers (array 3 4 5))
+                    (array letters numbers)))
+
+// regexes
+(var re (regex "[a-zA-Z0-9]"))
+
+(println "fred flintstone contains 'flint':"
+  ((dotprop test (regex "flint")) "fred flintstone"))
+(println "fred flintstone contains 'flint':"
+  ((. (regex "flint") test) "fred flintstone"))
+
+(if ((dotprop test (regex "[^\.]+\.[^\.]+")) "filename.ext")
+  (println "regex correctly says 'filename.ext' has an extension")
+  (println "regex incorrectly says 'filename.ext' has no extension"))
+
+// simple javascript passthru
+(js "console.log('hello');")
+(var name "fred")
+(var greeting (str 'hello ' name))
+(js "console.log(greeting);")
+
+// try/catch (all but the last=try body, last=catch function)
+(try
+  (println "In try")
+  (throw "In catch")
+  (function (err)
+    (println err)))
+
+;; This example shows the dangers of using a macro
+(macro msquare (x)
+  (* (~ x) (~ x)))
+(println (msquare 10))
+
+;; The code above works fine. Now consider the code below
+(var i 2)
+(println (msquare (++ i)))
+
+;; Oops you got 12! An embarrassing square of a no. Thats because the macro
+;; expanded to (* (++ i) (++ i)) which is multiplying 3 and 4!

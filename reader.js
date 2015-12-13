@@ -4,7 +4,7 @@
 * symbols, strings, numbers, booleans etc).
 */
 var src = require('./source'),
-  sl = require('./types'),
+  sl = require('./sl-types'),
   utils = require('./utils'),
   ctx = require('./transpiler-context'),
   filetypes = require('./filetypes'),
@@ -732,7 +732,9 @@ function use_dialect(dialectName, source, options) {
   dialect.syntax.__operators = {};
   Object.keys(dialect.syntax).forEach(function(sym) {
     var syntaxentry = dialect.syntax[sym];
-    var opSpec = Array.isArray(syntaxentry) ? syntaxentry[0].operator :
+
+    var opSpec = Array.isArray(syntaxentry) && syntaxentry.length > 0 ?
+                        syntaxentry[0].operator :
                         syntaxentry.operator;
     if(opSpec) {
       dialect.syntax.__operators[sym] = syntaxentry;
@@ -1012,6 +1014,20 @@ function unexpected(source) {
 function symbol(source, text) {
   var token = source.next_token(text);
   return sl.atom(text, {token: token});
+}
+
+/**
+* A symbol that's aliased to another.
+* e.g. We allow them do assignment like either "(set var value)" or
+* "(= var value)" by treating "=" as an alias for "set".
+* To allow that the symbol table has:
+*     exports["="] = reader.symbolAlias("set").
+*/
+function symbolAlias(aliasFor) {
+  return function(source, text) {
+    var token = source.next_token(text);
+    return sl.atom(aliasFor, {token: token});
+  }
 }
 
 /**
@@ -1374,6 +1390,16 @@ function read_wrapped_delimited_list(source, start, end, initial, separatorRE) {
 }
 
 /**
+* scan some delimited text and get it as a string atom
+* source.options.omitDelimiters = whether to include the include the delimiters or not
+*/
+function read_delimited_text(source, start, end, options) {
+  options = options || {includeDelimiters: true};
+  var delimited = source.next_delimited_token(start, end, options);
+  return sl.atom(delimited);
+}
+
+/**
 * Reader function to translate binary infix (e.g. "a + b") to prefix (i.e. "+ a b")
 * note:  this depends on "look back" to the last form the reader had read
 *  within the current list being read.  Note that we may be called with
@@ -1535,6 +1561,7 @@ exports.read_from_source = read_from_source;
 exports.read_include_file = read_include_file;
 exports.read_delimited_list = read_delimited_list;
 exports.read_wrapped_delimited_list = read_wrapped_delimited_list;
+exports.read_delimited_text = read_delimited_text;
 
 // dialects
 exports.get_current_dialect = get_current_dialect;
@@ -1544,6 +1571,7 @@ exports.get_closest_scoped_dialect_for = get_closest_scoped_dialect_for;
 exports.get_syntaxtable_entry = get_syntaxtable_entry;
 exports.unexpected = unexpected;
 exports.symbol = symbol;
+exports.symbolAlias = symbolAlias;
 // DELETE exports.applyTreeTransforms = applyTreeTransforms;
 exports.operator = operator;
 exports.infix = infix;
