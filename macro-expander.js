@@ -5,9 +5,8 @@
 var isArgsExpr = /^#args-if\b|^#args-shift\b|^#args-erase-head\b|^#args-rest\b|^#args-second\b|^#args-get\b/,
   sl = require('./sl-types'),
   reader = require('./reader'),
-  src = require('./source'),
   utils = require('./utils'),
-  debug = require('debug')('sugarlisp:core:macro-expander:info'),
+  debug = require('debug')('sugarlisp:core:macro-expander:debug'),
   trace = require('debug')('sugarlisp:core:macro-expander:trace');
 
 exports.expand = function(forms, macrodef) {
@@ -69,7 +68,7 @@ exports.expand = function(forms, macrodef) {
 
 function replaceCode(ctx, forms, expansioncode, replacements, isrestarg) {
   var macroname = sl.valueOf(forms[0]);
-  var source = sl.sourceOf(forms);
+  var source = sl.lexerOf(forms);
   var list = sl.list();
   list.setOpening(source);
   // disable the setting of parents since we don't want the *macro*

@@ -5,7 +5,7 @@
 var reader = require('sugarlisp-core/reader'),
     sl = require('./sl-types'),
     utils = require('./utils'),
-    debug = require('debug')('sugarlisp:core:keywords:info'),
+    debug = require('debug')('sugarlisp:core:keywords:debug'),
     trace = require('debug')('sugarlisp:core:keywords:trace');
 
 exports["var"] = function(forms) {
@@ -16,41 +16,41 @@ exports["var"] = function(forms) {
         this.indent += this.indentSize
     }
     this.transpileSubExpressions(forms)
-    var transpiled = sl.transpiled()
-    transpiled.push(sl.atom("var", {token:forms[0]}));
-    transpiled.push(" ");
+    var generated = sl.generated()
+    generated.push(sl.atom("var", {token:forms[0]}));
+    generated.push(" ");
 
     for (var i = 1; i < forms.length; i = i + 2) {
         if (i > 1) {
-            transpiled.push(",\n" + " ".repeat(this.indent))
+            generated.push(",\n" + " ".repeat(this.indent))
         }
         var validName = /^[a-zA-Z_$][0-9a-zA-Z_$]*$/;
         if (!validName.test(sl.valueOf(forms[i]))) {
-          sl.sourceOf(forms[i]).error("Invalid character in var name", forms[i]);
+          sl.lexerOf(forms[i]).error("Invalid character in var name", forms[i]);
         }
-        transpiled.push(forms[i]);
+        generated.push(forms[i]);
         if(i+1 < forms.length) {
-          transpiled.push([' = ', forms[i + 1]])
+          generated.push([' = ', forms[i + 1]])
         }
     }
     if (forms.length > 3) {
         this.indent -= this.indentSize
     }
 
-    return transpiled;
+    return generated;
 }
 
 exports["return"] = function(forms) {
-    var transpiled = sl.transpiled("return");
+    var generated = sl.generated("return");
     if(forms.length > 1) {
-      transpiled.push(" ");
-      transpiled.push(sl.isList(forms[1]) ? this.transpileExpression(forms[1]) : forms[1]);
+      generated.push(" ");
+      generated.push(sl.isList(forms[1]) ? this.transpileExpression(forms[1]) : forms[1]);
     }
-    return transpiled;
+    return generated;
 }
 
 function handleFuncs(forms) {
-    var transpiled = sl.transpiled();
+    var generated = sl.generated();
     var fName, fArgs, fBody;
 
     if (forms.length < 2) {
@@ -86,44 +86,44 @@ function handleFuncs(forms) {
       fBody.shift();    // remove "begin"
     }
 
-    transpiled.push(sl.atom(fType === "function*" ? fType : "function"), {token:forms[0]});
+    generated.push(sl.atom(fType === "function*" ? fType : "function"), {token:forms[0]});
     if(fName) {
-      transpiled.push([" ", fName]);
+      generated.push([" ", fName]);
     }
-    transpiled.push("(");
-    var transpiledArgs = sl.transpiledFromArray(fArgs);
-    transpiledArgs.join(",");
-    transpiled.push(transpiledArgs);
+    generated.push("(");
+    var generatedArgs = sl.generatedFromArray(fArgs);
+    generatedArgs.join(",");
+    generated.push(generatedArgs);
 
     var bodyCode = this.transpileExpressions(fBody);
     var bodyCodeStr = bodyCode.toString();
 
     // note we push bodyCode (not bodyCodeStr) to preserve line/col info
-    transpiled.push([
+    generated.push([
         ") {",
         /^[\ \t]*\n/.test(bodyCodeStr) ? "" : "\n", bodyCode,
         /\n[\ \t]*$/.test(bodyCodeStr) ? "" : "\n",
-        " ".repeat(this.indent), "}"])
-    if(fType === "=>" && transpiled.toString().indexOf("this") !== -1) {
+        " ".repeat(this.indent > 0 ? this.indent : 0), "}"])
+    if(fType === "=>" && generated.toString().indexOf("this") !== -1) {
       // it's an arrow function using "this" - bind "this" since
       // arrow functions are lexically scoped - but not if it's an
       // object method ("this" is already the object in that case)
       if(!(forms.parent && sl.isList(forms.parent) &&
         sl.typeOf(forms.parent[0]) === 'symbol' && sl.valueOf(forms.parent[0]) === 'object'))
       {
-        transpiled.push(".bind(this)");
+        generated.push(".bind(this)");
       }
     }
 
     if(fName) {
       // our output has been really scrunched together
       // aid readability with a little white space
-// THIS CAUSES SOME FORMATTING ISSUES IN SOME CASES     transpiled.unshift("\n");
-      transpiled.push("\n");
+// THIS CAUSES SOME FORMATTING ISSUES IN SOME CASES     generated.unshift("\n");
+      generated.push("\n");
       // and named functions don't terminate with semis:
       this.noSemiColon = true;
     }
-    return transpiled;
+    return generated;
 }
 
 // named and anonymous functions
@@ -144,10 +144,10 @@ function handleYield(forms) {
     this.indent += this.indentSize;
     this.transpileSubExpressions(forms);
 
-    var transpiled = sl.transpiled();
-    transpiled.push([yieldType, " ", forms[1]]);
+    var generated = sl.generated();
+    generated.push([yieldType, " ", forms[1]]);
     this.indent -= this.indentSize;
-    return transpiled;
+    return generated;
 }
 
 exports["yield"] = handleYield;
@@ -159,35 +159,35 @@ exports["try"] = function(forms) {
     }
     var c = forms.pop(),
         ind = " ".repeat(this.indent),
-        transpiled = sl.transpiled();
+        generated = sl.generated();
 
-    transpiled.push(["(function() {\n" + ind +
+    generated.push(["(function() {\n" + ind +
            "try {\n", this.transpileExpressions(forms.slice(1)), "\n" +
            ind + "} catch (e) {\n" +
            ind + "return (", (sl.isList(c) ? this.transpileExpression(c) : c), ")(e);\n" +
            ind + "}\n" + ind + "})()"])
 
-    return transpiled;
+    return generated;
 }
 
 exports["throw"] = function(forms) {
     if (forms.length != 2)  {
       forms.error("missing target to be thrown");
     }
-    var transpiled = sl.transpiled();
+    var generated = sl.generated();
 
-    transpiled.push(sl.isList(forms[1]) ? this.transpileExpression(forms[1]) : forms[1]);
-    transpiled.unshift("(function(){throw ");
-    transpiled.push(";})()");
+    generated.push(sl.isList(forms[1]) ? this.transpileExpression(forms[1]) : forms[1]);
+    generated.unshift("(function(){throw ");
+    generated.push(";})()");
 
-    return transpiled;
+    return generated;
 }
 
 /**
 * transpile time "#if" condition for including/omitting code from the output
 * note the expression in the condition is evaluated at *transpile time*
 * Also #if (as with the other # directives) is paren free, taking two args:
-* a condition in parens followed by the code to be transpiled or not (can
+* a condition in parens followed by the code to be generated or not (can
 * be a single expression otherwise wrap in {}).  Note #if does not support
 * an "else" (negate your condition with a second #if when you need an "else")
 * TBD IS THE QUESTION OF SOURCE MAPS
@@ -221,7 +221,7 @@ exports["get"] = function(forms) {
       forms.error("get takes a key and object / index and array");
     }
     this.transpileSubExpressions(forms);
-    return sl.transpiled([forms[2], "[", forms[1], "]"]);
+    return sl.generated([forms[2], "[", forms[1], "]"]);
 }
 
 // (str...) evaluates to the js Array.join of each of it's expression arguments
@@ -231,22 +231,22 @@ exports["str"] = function(forms) {
       forms.error("missing arguments to \"str\"");
     }
     this.transpileSubExpressions(forms);
-    var transpiled = sl.transpiledFromArray(forms.slice(1));
-    transpiled.join(",");
-    transpiled.unshift("[");
-    transpiled.push("].join('')");
+    var generated = sl.generatedFromArray(forms.slice(1));
+    generated.join(",");
+    generated.unshift("[");
+    generated.push("].join('')");
 
-    return transpiled;
+    return generated;
 }
 
 // (code...) is intended for use in code templates.
-// it generates js code that transpiles code using an sl.transpiled list
+// it generates js code that transpiles code using an sl.generated list
 exports["code"] = function(forms) {
     if (forms.length < 2) {
       forms.error("missing arguments to \"code\"");
     }
 
-    var gencode = sl.transpiled();
+    var gencode = sl.generated();
 
     this.tabin();
     this.transpileSubExpressions(forms);
@@ -277,7 +277,7 @@ exports["code"] = function(forms) {
           }
         });
       }
-      else if (sl.isTranspiled(form)) {
+      else if (sl.isGenerated(form)) {
         gencode.push(leadin + form.toString());
         leadin = "";
       }
@@ -286,7 +286,7 @@ exports["code"] = function(forms) {
       }
     });
     gencode.join(",");
-    gencode.unshift("sl.transpiled([\n" + ctx.margin());
+    gencode.unshift("sl.generated([\n" + ctx.margin());
     gencode.push("])");
     this.tabout();
 
@@ -294,57 +294,57 @@ exports["code"] = function(forms) {
 }
 
 exports["array"] = function(forms) {
-    var transpiled = sl.transpiled()
+    var generated = sl.generated()
 
     if (forms.length == 1) {
-        transpiled.push("[]")
-        return transpiled;
+        generated.push("[]")
+        return generated;
     }
 
     var ctx = this;
     ctx.tabin();
     this.transpileSubExpressions(forms);
 
-    transpiled.push("[\n" + ctx.margin())
+    generated.push("[\n" + ctx.margin())
     forms.forEach(function(form, i) {
       if (i > 1) {
-        transpiled.push(",\n" + ctx.margin())
+        generated.push(",\n" + ctx.margin())
       }
       if(i !== 0) {
-        transpiled.push(form);
+        generated.push(form);
       }
     });
     ctx.tabout();
-    transpiled.push("\n" + ctx.margin() + "]");
+    generated.push("\n" + ctx.margin() + "]");
 
-    return transpiled;
+    return generated;
 }
 
 exports["object"] = function(forms) {
-    var transpiled = sl.transpiled();
+    var generated = sl.generated();
 
     if (forms.length == 1) {
-        transpiled.push("{}");
-        return transpiled;
+        generated.push("{}");
+        return generated;
     }
 
     this.indent += this.indentSize;
     this.transpileSubExpressions(forms);
 
-    transpiled.push("{\n" + " ".repeat(this.indent));
+    generated.push("{\n" + " ".repeat(this.indent));
 
     for (var i = 1; i < forms.length; i = i + 2) {
         if (i > 1) {
-            transpiled.push(",\n" + " ".repeat(this.indent));
+            generated.push(",\n" + " ".repeat(this.indent));
         }
 
-        transpiled.push([forms[i].toString(), ': ', forms[i + 1]]);
+        generated.push([forms[i].toString(), ': ', forms[i + 1]]);
     }
 
     this.indent -= this.indentSize;
-    transpiled.push("\n" + " ".repeat((this.indent >= 0 ? this.indent : 0)) + "}");
+    generated.push("\n" + " ".repeat((this.indent >= 0 ? this.indent : 0)) + "}");
 
-    return transpiled;
+    return generated;
 }
 
 exports["#include"] = function(forms) {
@@ -355,7 +355,7 @@ exports["#include"] = function(forms) {
 
     this.indent -= this.indentSize;
 
-    var includedforms = reader.read_include_file(filename, sl.sourceOf(forms));
+    var includedforms = reader.read_include_file(filename, sl.lexerOf(forms));
     var expanded = this.transpileExpressions(includedforms);
     this.indent += this.indentSize;
 
@@ -386,7 +386,7 @@ exports["#require"] = function(forms) {
     var modulename = sl.valueOf(forms[1]);
 
     this.indent -= this.indentSize;
-    var transpiled = require(modulename);
+    var generated = require(modulename);
 
     this.noSemiColon = true;
 
@@ -418,22 +418,22 @@ exports["do"] = function(forms) {
     wrapperfn.pushFromArray(forms.slice(1));
 
     // convert that to javascript
-    var transpiled = this.transpileExpression(wrapperfn);
+    var generated = this.transpileExpression(wrapperfn);
 
     // wrap it in parens:
-    transpiled.unshift('(');
-    transpiled.push(')');
+    generated.unshift('(');
+    generated.push(')');
 
     // if it refers to "this" call it with *our* "this"
-    if(transpiled.toString().indexOf("this") !== -1) {
-      transpiled.push('.call(this)');
+    if(generated.toString().indexOf("this") !== -1) {
+      generated.push('.call(this)');
     }
     else {
       // otherwise call it simply
-      transpiled.push('()');
+      generated.push('()');
     }
 
-    return transpiled;
+    return generated;
 }
 
 // "begin" is much like "do" except it simply
@@ -493,7 +493,7 @@ function handleBindingAssignment(forms) {
     invokereactorfn = reactor;
   }
 
-  // We return an s-expression *form* (like a macro) not transpiled js
+  // We return an s-expression *form* (like a macro) not generated js
   // It uses #react to register code forms inserted (later) by the transpiler
   // it's like (#react after set (cell1, cell2) (set tgt (reactorfn cell1 cell2)))
   var registrar = sl.list("#react");
@@ -518,7 +518,7 @@ exports['##='] = handleBindingAssignment;
 *  when = "before" or "after"
 *  (fn1,..., fnM) = the names of functions to insert code before or after (e.g. (set,++,*=))
 *  (cell1,...,cellN) = observed cells i.e. the fn arguments we're reacting to changes in
-*  reactorcode = code to be transpiled and run when a cell is modified with an fnX.
+*  reactorcode = code to be generated and run when a cell is modified with an fnX.
 */
 function registerReactor(forms) {
   if (forms.length != 5)  {
@@ -541,7 +541,7 @@ function registerReactor(forms) {
   //   variables as global to the file since we have no way to distinguish
   //   a reference to a variable in one scope from a variable with the same
   //   name in another (since we're a transpiler not an interpreter)
-  var source = sl.sourceOf(forms);
+  var source = sl.lexerOf(forms);
   observed.forEach(function(cell) {
     var arg = sl.valueOf(cell);
     if(source.cells.indexOf(arg) === -1) {
@@ -553,7 +553,7 @@ function registerReactor(forms) {
   // we store for each "cmd" an array of objects of the form:
   //   { of: [observed1, ..., observedN], insert: form }
   // where "observed" are first args for cmd (e.g. "(set observedX val)"), and
-  // insert is the (already transpiled) js code to insert before/after
+  // insert is the (already generated) js code to insert before/after
   cmds.forEach(function(cmdAtom) {
     var cmdName = sl.valueOf(cmdAtom);
     if(!source.bindingCode[when][cmdName]) {
@@ -565,7 +565,7 @@ function registerReactor(forms) {
   // we expand to nothing our only job is to register the
   // code that the main transpiler injects when appropriate
   this.noSemiColon = true;
-  return sl.transpiled();
+  return sl.generated();
 }
 
 exports['#react'] = registerReactor;
@@ -681,19 +681,19 @@ exports["concat"] = function(forms) {
 exports["codequasiquote"] = function(forms) {
   // transpile the quoted lispy code to javascript
   // (but placeholders e.g. ~obj pass thru in the javascript)
-  var transpiledJsForms = this.transpileExpression(forms[1]);
-  var transpiledJsStr = transpiledJsForms.toString();
-  return transpiledJsStr;
+  var generatedJsForms = this.transpileExpression(forms[1]);
+  var generatedJsStr = generatedJsForms.toString();
+  return generatedJsStr;
 
   // change ~(expr) so they are es6 template style i.e. ${(expr)}
   // THIS REGEX WILL FAIL IF THERE'S NESTED PARENS INSIDE THE ~(expr)!!!! FIX!!
-//  var codeStr = transpiledJsStr.replace(/\~\((.+)\)/g, '\$\{\($1\)\}');
+//  var codeStr = generatedJsStr.replace(/\~\((.+)\)/g, '\$\{\($1\)\}');
 //console.log("after 1:", codeStr);
   // change ~name so they are es6 template style i.e. ${name}
 //  codeStr = codeStr.replace(/\~([a-zA-Z_]+[a-zA-Z0-9_\.]*)/g, '\${$1}');
 //console.log("after 2:", codeStr);
   // now treating *that* as a code template string, transform it into javascript
-  // generating sl.transpiled objects (as if they'd used """ themselves)
+  // generating sl.generated objects (as if they'd used """ themselves)
 //  var codeForms = reader.read_from_source('"""' + codeStr + '"""',
 //                    "codequasiquote.sl");
 //  var result = this.transpileExpression(codeForms);
@@ -710,11 +710,11 @@ var handleCompOperator = function(forms) {
 // DELETE THIS IS CONFUSING NOW THAT WE ALSO SUPPORT ==, !==    if (forms[0].value == "!=") forms[0] = "!=="
 
     var op = forms[0];
-    var transpiled = sl.transpiled()
+    var generated = sl.generated()
 
     var argforms = forms.slice(1);
     for (i = 0; i < argforms.length - 1; i++)
-        transpiled.push([argforms[i], " ", op, " ", argforms[i + 1]])
+        generated.push([argforms[i], " ", op, " ", argforms[i + 1]])
 
 // to not lose token info our join can't be the standard Array.join
 // the standard Array.join produces a string
@@ -722,7 +722,7 @@ var handleCompOperator = function(forms) {
 // notice in the next function down we join with another list e.g.
 // op.push([" ", arithAtom, " "]) is what is joined with.
 // where again: we don't wnat token info from arithAtom lost becaus of this
-    transpiled.join (' && ')
+    generated.join (' && ')
 
     // note the parens added here are critical when the generated
     // code has multiple chained conditions to get the associativity
@@ -730,10 +730,10 @@ var handleCompOperator = function(forms) {
     //   true === typeof(var) === "undefined"
     // which will break when what we really needed was like
     //   true === (typeof(var) === "undefined")
-    transpiled.unshift('(')
-    transpiled.push(')')
-    transpiled.callable = false;
-    return transpiled;
+    generated.unshift('(')
+    generated.push(')')
+    generated.callable = false;
+    return generated;
 }
 
 var handleArithOperator = function(forms) {
@@ -743,18 +743,18 @@ var handleArithOperator = function(forms) {
     this.transpileSubExpressions(forms)
 
     var arithAtom = forms[0];
-    var op = sl.transpiled()
+    var op = sl.generated()
     op.push([" ", arithAtom, " "])
 
-    var transpiled = new sl.transpiledFromArray(forms.slice(1));
-    transpiled.join(op)
+    var generated = new sl.generatedFromArray(forms.slice(1));
+    generated.join(op)
 
     if(!arithAtom.noparens) {
-      transpiled.unshift("(")
-      transpiled.push(")")
+      generated.unshift("(")
+      generated.push(")")
     }
-    transpiled.callable = false;
-    return transpiled;
+    generated.callable = false;
+    return generated;
 }
 
 var handleBinaryOperator = function(forms) {
@@ -774,16 +774,16 @@ var handleUnaryOperator = function(forms) {
     }
 
     this.transpileSubExpressions(forms)
-    var transpiled = sl.transpiled();
+    var generated = sl.generated();
     var postPrefix = "post";
     if(opName.indexOf(postPrefix) === 0) {
-      transpiled.push([sl.valueOf(forms[1]),opName.substring(postPrefix.length)]);
+      generated.push([sl.valueOf(forms[1]),opName.substring(postPrefix.length)]);
     }
     else {
-      transpiled.push([forms[0], sl.valueOf(forms[1])]);
+      generated.push([forms[0], sl.valueOf(forms[1])]);
     }
-    transpiled.callable = false;
-    return transpiled;
+    generated.callable = false;
+    return generated;
 }
 
 // Minus is unique in that it can be a unary minus
@@ -798,10 +798,10 @@ var handleMinusOperator = function(forms) {
 
     // it's a unary minus
     this.transpileSubExpressions(forms)
-    var transpiled = sl.transpiled()
-    transpiled.push(["-", sl.valueOf(forms[1])]);
-    transpiled.callable = false;
-    return transpiled;
+    var generated = sl.generated()
+    generated.push(["-", sl.valueOf(forms[1])]);
+    generated.callable = false;
+    return generated;
 }
 
 var handleLogicalOperator = handleArithOperator
@@ -849,7 +849,7 @@ exports["!"] = function(forms) {
       forms.error("\"!\" expects a single expression");
     }
     this.transpileSubExpressions(forms)
-    var result = sl.transpiled("(!" + forms[1] + ")");
+    var result = sl.generated("(!" + forms[1] + ")");
     result.callable = false;
     return result;
 }

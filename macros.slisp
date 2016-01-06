@@ -156,25 +156,6 @@
  (export empty? (macro (arr)
   (=== 0 ~arr.length)))
 
-;;;;;;;;;;;;;;;;;;;; Callback Sequence ;;;;;;;;;;;;;;;;;;;;;
-
- (export sequence (macro (name args init ...rest)
-  (var ~name
-    (function ~args
-      ((function ()
-        (#args-erase-head init)
-        ~@init
-        (var next null)
-        (var ___curr -1)
-        (var ___actions [ ~@rest ])
-        (set next
-          (function ()
-            (var ne (get ++___curr ___actions))
-            (if? ne
-              ne
-              (throw "Call to (next) beyond sequence."))))
-        (((next)))))))))
-
 ;;;;;;;;;;;;;;;;;;;; Templates ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Note we now promote the use of our "html dialect" in lieu of these.
 ;; However template-repeat is still used by the testRunner macro below.

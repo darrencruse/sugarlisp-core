@@ -39,6 +39,11 @@ exports.load = function(dialectName) {
     // by convention language extensions are named e.g. sugarlisp-core,
     // sugarlisp-async, etc. (just to organize them all together in npm)
     dialect = require('sugarlisp-' + dialectName);
+
+    // we require all dialect's include their name - but JIC:
+    if(!dialect.name) {
+      dialect.name = dialectName;
+    }
   }
   catch(e) {
     console.log('Error loading dialect:', dialectName);

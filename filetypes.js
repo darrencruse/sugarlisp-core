@@ -5,12 +5,20 @@
 //  file (i.e. later ones override the earlier ones)
 module.exports = {
   // "code" formats
+
   score: ['core'],
-  slisp: ['core', 'plus'],
-  sugar: ['core', 'plus', 'sugarscript'],
+  slisp: ['plus'],
+  sugar: ['sugarscript'],
 
   // "data" formats
-  slson: ['core', 'plus'],
-  slml: ['core', 'plus', 'html'],
-  slss: ['core', 'plus', 'css']
+
+  // these for people who like lispy syntax:
+  slon: ['plus'],
+  slml: ['plus', 'html'],
+  slss: ['plus', 'css'],
+  
+  // and these for people who like the sugarscript syntax:
+  sson: ['sugarscript'],
+  ssml: ['sugarscript', 'html'],
+  ssss: ['sugarscript', 'css']
 };
