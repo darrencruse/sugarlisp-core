@@ -4,8 +4,7 @@
 * The Lispyscript data types ("forms") are lists of "atoms"
 * and/or other lists.
 */
-var src = require('./source'),
-    utils = require('./utils'),
+var utils = require('./utils'),
     ctx = require('./transpiler-context'),
     debug = require('debug')('sugarlisp:core:types');
 
@@ -95,6 +94,9 @@ function atom(value, options) {
 
   // if they gave the token
   if(options.token) {
+    // they can override the token category if they choose:
+    options.token.category = options.category || options.token.category;
+
     // just pull the token info right into us:
     utils.mergeInto(atomized, options.token);
 
@@ -113,8 +115,9 @@ function atom(value, options) {
   atomized.toString = function() { return toString(atomized); };
   atomized.toQuotedString = function() { return addQuotes(toString(atomized)); };
   atomized.toUnquotedString = function() { return stripQuotes(toString(atomized)); };
+  atomized.toJSON = function() { return toJSON(atomized); };
   atomized.error = function(msg, locator) {
-      sourceOf(atomized).error(msg, locator || atomized);
+      lexerOf(atomized).error(msg, locator || atomized);
   };
   atomized.transform = options.transform;
   atomized.__isatom = true;
@@ -200,7 +203,7 @@ function list() {
 function listFromArray(arr) {
 
   // note the below inadvertantly connected the input forms to the
-  // output transpiled code forms and caused a problem if anonymous
+  // output generated code forms and caused a problem if anonymous
   // "reactor functions" were used.  But without it - compile times
   // went thru the roof!!
   if(isList(arr)) { return arr; }
@@ -299,13 +302,13 @@ function listFromArray(arr) {
   };
 
   thelist.error = function(msg, locator) {
-    sourceOf(thelist).error(msg, locator || thelist);
+    lexerOf(thelist).error(msg, locator || thelist);
   };
 
   /**
   * Get the simplified JSON representation of the atoms in this list.
   */
-  thelist.toJSON = function(form) {
+  thelist.toJSON = function() {
     return toJSON(this);
   };
 
@@ -334,31 +337,25 @@ function listFromArray(arr) {
   * Set the opening line/col for a list from the opening token (e.g. "(")
   * or current position in the Source
   */
-  thelist.setOpening = function(tokenOrSource) {
-    this.line = tokenOrSource.line;
-    this.col = tokenOrSource.col;
-    if(!this.source && tokenOrSource.source) {
-      this.source = tokenOrSource.source;
-    }
+  thelist.setOpening = function(tokenOrLexer) {
+    this.line = tokenOrLexer.line;
+    this.col = tokenOrLexer.col;
 
     // whitespace or comments that preceded the opening token
     // (e.g. on a () list whitespace or comments that preceded "(")
-    this.prelude = tokenOrSource.prelude;
+    this.prelude = tokenOrLexer.prelude;
   }
 
   /**
   * Set the closing line/col for a list from the closing token (e.g. ")")
   */
-  thelist.setClosing = function(tokenOrSource) {
-    this.endLine = tokenOrSource.line;
-    this.endCol = tokenOrSource.col;
-    if(!this.source && tokenOrSource.source) {
-      this.source = tokenOrSource.source;
-    }
+  thelist.setClosing = function(tokenOrLexer) {
+    this.endLine = tokenOrLexer.line;
+    this.endCol = tokenOrLexer.col;
 
     // whitespace or comments that preceded the end token
     // (e.g. on a () list whitespace or comments that preceded ")")
-    this.endPrelude = tokenOrSource.prelude;
+    this.endPrelude = tokenOrLexer.prelude;
   }
 
   // did they give an initial arr?
@@ -367,10 +364,15 @@ function listFromArray(arr) {
     thelist = fromJSON(arr, thelist);
   }
 
-  var atomwithsource = finddeep(thelist, function(atom) { return atom.source; });
+/*
+THIS APPEARS TO BE TRYING TO HELP SET LINE/COL POSITIONS FOR SOURCE
+MAPS WHEN A LIST MIGHT HAVE SOME PROGRAM-CREATED TOKENS?  COMMENTED
+FOR NOW SINCE WE'RE MOVING FROM THERE EVEN BEING ATOM.LEXER
+  var atomwithsource = finddeep(thelist, function(atom) { return atom.lexer; });
   if(atomwithsource) {
-    thelist.setOpening(sourceOf(atomwithsource));
+    thelist.setOpening(lexerOf(atomwithsource));
   }
+*/
 
   thelist.__islist = true; // is this is a sugarlisp list or just a js array?
 
@@ -548,15 +550,15 @@ function pprintSEXP(formJson, opts, indentLevel, priorNodeStr) {
 //// Transpiled Output
 //// (represented as a tree of code snippet strings intermixed with atoms)
 
-function transpiled() {
-  return transpiledFromArray(Array.prototype.slice.call(arguments));
+function generated() {
+  return generatedFromArray(Array.prototype.slice.call(arguments));
 }
 
-function transpiledFromArray(arr) {
+function generatedFromArray(arr) {
   var thelist = listFromArray(arr);
 
   /**
-  * Join a transpiled list by interposing sepform between each item
+  * Join a generated code list by interposing sepform between each item
   */
   thelist.join = function(sepform) {
 
@@ -576,17 +578,17 @@ function transpiledFromArray(arr) {
       wrapped = atom(form);
     }
     else {
-      wrapped = transpiledFromArray(form);
+      wrapped = generatedFromArray(form);
     }
     if(!thelist.noparenting) {
       wrapped.parent = thelist;
     }
-    wrapped.__istranspiled = true;
+    wrapped.__isgenerated = true;
     return wrapped;
   }
 
   /**
-  * Add the given form to the end of the transpiled list.
+  * Add the given form to the end of the generated code list.
   * note: this also wraps the form and sets the list as the parent of the item
   */
   thelist.push = function(form) {
@@ -595,7 +597,7 @@ function transpiledFromArray(arr) {
   };
 
   /**
-  * Add the given form to the beginning of the transpiled list.
+  * Add the given form to the beginning of the generated code list.
   * note: this also wraps the form and sets the list as the parent of the item
   */
   thelist.unshift = function(form) {
@@ -605,7 +607,7 @@ function transpiledFromArray(arr) {
 
   thelist.toString = function() {
 
-    // Helper to flatten an array of arrays (ls.list, ls.transpiled, normal arrays)
+    // Helper to flatten an array of arrays (ls.list, ls.generated, normal arrays)
     // down to a single array
     function _flatten(arr) {
       return arr.reduce(function(a, b) {
@@ -617,15 +619,15 @@ function transpiledFromArray(arr) {
     return _flatten(this).join('');
   };
 
-  thelist.__istranspiled = true;
+  thelist.__isgenerated = true;
   return thelist;
 }
 
 /**
- * Returns if the specified form is a list
+ * Returns if the specified form is a generated code
  */
-function isTranspiled(form) {
-  return (form && typeof form === 'object' && form.__istranspiled);
+function isGenerated(form) {
+  return (form && typeof form === 'object' && form.__isgenerated);
 }
 
 //// Methods on lispy forms (apply whether arg is atom or list)
@@ -709,16 +711,14 @@ function parentOf(form) {
 }
 
 /**
-* Get the original input Source (see the source module) for an atom
-* Note:  this is only available for atoms created from tokens
+* Get the Lexer that was used to read an atom
+* Note:  this was originally a very fancy-pants affair,
+*   but it's been simplified since we compile one file
+*   at a time, and so there's only ever one Lexer at a
+*   time.
 */
-// I JUST ADDED THE parentOf(form) !== form CHECK BELOW BECAUSE
-// AFTER ADDING THE local_dialect STUFF FOR SWITCH I started
-// BLOWING OUT MY STACK AND IT WAS HAPPENING BELOW!!!!
-function sourceOf(form) {
-  return isForm(form) && atom.source ? atom.source :
-            parentOf(form) && parentOf(form) !== form ?
-              sourceOf(parentOf(form)) : ctx.source;
+function lexerOf(form) {
+  return ctx.lexer;
 }
 
 //// Assorted Utility Methods (lesser used)
@@ -820,15 +820,15 @@ module.exports = {
   toJSON: toJSON,
   pprintJSON: pprintJSON,
   pprintSEXP: pprintSEXP,
-  transpiled: transpiled,
-  transpiledFromArray: transpiledFromArray,
-  isTranspiled: isTranspiled,
+  generated: generated,
+  generatedFromArray: generatedFromArray,
+  isGenerated: isGenerated,
   isList: isList,
   isAtom: isAtom,
   isForm: isForm,
   typeOf: typeOf,
   parentOf: parentOf,
-  sourceOf: sourceOf,
+  lexerOf: lexerOf,
   isPrimitive: isPrimitive,
   isQuotedString: isQuotedString,
   stringQuoteChar: stringQuoteChar,

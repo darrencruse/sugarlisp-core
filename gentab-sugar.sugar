@@ -29,9 +29,19 @@ export "dotprop" function (forms) {
 
 export "new" function {
 
+  // new module.Classname(arg1, arg2)
+  case ["new" classexpr::sllist ...constructorArgs]  {
+    if(constructorArgs.length === 0) {
+      return """new ${@transpileExpression(classexpr)}""";
+    }
+    else {
+      return """new ${@transpileExpression(classexpr)}(${@transpileArgList(constructorArgs)})""";
+    }
+  }
+
+  // new Classname(arg1, arg2)
   case ["new" classname::slsymbol ...constructorArgs]  {
-    @x(constructorArgs);
-    """new ${classname}(${constructorArgs})"""
+    """new ${classname}(${@transpileArgList(constructorArgs)})"""
   }
 
   case ["new" ...newArgs]  {
@@ -46,18 +56,17 @@ export "new" function {
 // TODO (fix) the line below blows up in atom preview
 //       with no space between function and (forms)!!
 export "if?" function (forms) {
-  @transpileSubExpressions(forms);
 
   match (forms) {
 
     case ["if?" condition iftrue iffalse]
-      """(${condition} ?
-       ..    ${iftrue} :
-       ..    ${iffalse})"""
+      """(${@x(condition)} ?
+       ..    ${@transpileCommaExpression(iftrue)} :
+       ..    ${@transpileCommaExpression(iffalse)})"""
 
     case ["if?" condition iftrue]
-      """(${condition} ?
-       ..    ${iftrue} : undefined )"""
+      """(${@x(condition)} ?
+       ..    ${@transpileCommaExpression(iftrue)} : undefined )"""
 
     default @error('if? expects a condition followed by one (for "then") or two (for "else") body expressions');
   }
@@ -149,7 +158,7 @@ export "switch" function {
     """switch(${@x(switchon)}) {
      ${body.map((caseform, pos) => {
        (pos % 2 === 0 ?
-          sl.transpiled((sl.valueOf(caseform) !== "default" ? "case " : ""),
+          sl.generated((sl.valueOf(caseform) !== "default" ? "case " : ""),
                         sl.valueOf(caseform), ":\n") :
           @transpileExpression(caseform))
         })}}"""
@@ -159,5 +168,5 @@ export "switch" function {
 }
 
 export "break" function (forms) {
-  sl.transpiled("break");
+  sl.generated("break");
 }

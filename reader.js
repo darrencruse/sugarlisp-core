@@ -3,7 +3,7 @@
 * atoms and/or other lists (where we have atoms of various types:
 * symbols, strings, numbers, booleans etc).
 */
-var src = require('./source'),
+var lex = require('./lexer'),
   sl = require('./sl-types'),
   utils = require('./utils'),
   ctx = require('./transpiler-context'),
@@ -31,7 +31,7 @@ var include_dirs = [
   __dirname + "/../../includes"
 ];
 
-var debug = require('debug')('sugarlisp:core:reader:info'),
+var debug = require('debug')('sugarlisp:core:reader:debug'),
   trace = require('debug')('sugarlisp:core:reader:trace'),
   slinfo = require('debug')('sugarlisp:info');
 
@@ -46,35 +46,377 @@ catch(e) {
   debug("failed requiring fs and path (assume we're running in a browser)");
 }
 
-// get a syntax table entry for the text under the current position
-// note: if the current entry has already been found, a cached entry is returned
-function get_syntaxtable_entry(source) {
+/**
+* Read the expressions in the provided source code string.
+* @param codestr = the source code as a string e.g. from reading a source file.
+* @param filenameOrLexer = the name of source file (or the Lexer for the file)
+* @return the list (see sl-types) of the expressions in codestr.
+*/
+function read_from_source(codestr, filenameOrLexer, options) {
 
-  if(!(source.lastSyntaxEntry &&
-      source.lastSyntaxEntryPos === source.position)) {
-    var entry = invoke_read_function(source, {exec: false});
-    if(entry) {
-      source.lastSyntaxEntry = entry;
-      source.lastSyntaxEntryPos = source.position;
-    }
+  var lexer;
+  if(typeof filenameOrLexer === 'string') {
+    lexer = initLexerFor(codestr, filenameOrLexer, options);
   }
-  return source.lastSyntaxEntry;
+  else {
+    lexer = filenameOrLexer;
+    lexer.set_source_text(codestr, options);
+  }
+
+  // read the forms
+  var forms = read(lexer);
+
+  // it's useful to sometimes look "up" the lexical nesting of forms...
+  // to make this easy/reliable - walk the form tree setting "parent"
+// I SHOULD TIME THIS?  IF IT'S EXPENSIVE - I'M NOT SURE I EVEN NEED IT ANYMORE?
+  if(options.setParents !== 'no' && forms.setParents) {
+    forms.setParents();
+  }
+
+  return forms;
 }
 
-// Read a form and return the form tree for it's s-expression
-function read(source, precedence) {
+/**
+* Create and initialize a lexer for the given code from the given file.
+* This is called implicitly when using "read_from_source" above.
+* When using this for something like a repl, codestr might be undefined
+* (since you'll be passing in code later a line at a time), and the
+* filename might be fake, but it's extension allows default dialects
+* to be included appropriate for the type of code you're planning to
+* evaluate later on.
+*
+* @param codestr = the source code as a string e.g. from reading a source file.
+* @param filenameOrLexer = the name of source file (or the Lexer for the file)
+* @return a Lexer for the type of code indicated by the specified filename
+*/
+function initLexerFor(codestr, filenameOrLexer, options) {
+
+  options = options || {};
+  var lexer;
+  var filename;
+  if(filenameOrLexer instanceof lex.Lexer) {
+     lexer = filenameOrLexer;
+     filename = lexer.filename;
+  }
+  else {
+    filename = filenameOrLexer;
+  }
+
+  // we've had trouble preserving comments -
+  // for now, default to leaving them out:
+  if (typeof options.includeComments === 'undefined') {
+    options.includeComments = false;
+  }
+
+  if(!lexer) {
+    // create a Lexer object per file that holds state
+    // e.g. the current position when reading the file
+    lexer = new lex.Lexer(codestr, filename, options);
+  }
+  else {
+    // change the source text being lexed
+    // (yet retaining already #used dialects the Lexer already has)
+    lexer.set_source_text(codestr, options);
+  }
+
+  // All the modules can access the Lexer for the main source file
+  // via the transpiler context...
+  // note:  this is fairly simplistic right now - it's assuming
+  //  just one source file of any importance (as opposed to
+  //  transpiling multiple source files with multiple Lexers all
+  //  at the same time).  So it's fine for now but might change...
+// DELETE? if(!ctx.lexer) {
+    ctx.lexer = lexer;
+//  }
+
+  var fileext = utils.getFileExt(filename, "slisp");
+
+  // filetypes defines the dialect's this dialect builds upon:
+  var baseDialectNames = filetypes[fileext];
+  if(!baseDialectNames) {
+    throw new Error(filename + " is not a recognized sugarlisp file type.");
+  }
+
+  // options.autouse=false can be used to disable the base dialects
+  // (but this is not typical)
+  if(typeof options.autouse === 'undefined' || options.autouse) {
+    // then add the others
+    for (var i=baseDialectNames.length; i--; ) {
+      var dialectName = baseDialectNames[i];
+      // we skip core here because we *always* include core (see below)
+//DELETE      if(dialectName !== 'core') {
+//DELETE prepend #use statements just as if they'd done it themselves
+//DELETE codestr = '#use "' + dialectName +  '"\n' + codestr;
+        // bootstrap the core dialect which everything must have
+        use_dialect(dialectName, lexer);
+//      }
+    }
+  }
+
+  // bootstrap the core dialect which everything must have
+//  use_dialect('core', lexer);
+
+  return lexer;
+}
+
+/**
+* Return the tokens seen using just the main (non-local) dialects
+* for the file.
+*
+* note:  this is just meant for debugging and will not reflect tokens
+*  gotten by local dialects added/removed during then normal read process.
+*  Those *true* tokens can be gotten after a read when the lexer is passed
+*  {to: "tokens"}.  This alternative is provided mainly because there are
+*  times when the read may be blowing up in which case the alternative
+*  approach will fail (in which case this option is better than nothing).
+* (presumably for debugging but who knows...)
+*/
+function nonlocal_tokens(codestr, filename) {
+
+  // get the base dialects for this file type:
+  var fileext = utils.getFileExt(filename, "slisp");
+  var baseDialectNames = filetypes[fileext];
+  if(!baseDialectNames) {
+    throw new Error(filename + " is not a recognized sugarlisp file type.");
+  }
+
+  // note we manually ensure the lexer has the appropriate bases dialects below
+  // (this is normally taken care of by reader.read_from_source() but not here)
+  var lexer = new lex.Lexer(codestr, filename, {wrapOuterForm: 'no'});
+
+  // we always bootstrap the core dialect which everything must have
+  use_dialect('core', lexer);
+
+  // And then add the extension dialects the file depends on
+  baseDialectNames.forEach(function(dialectName) {
+    use_dialect(dialectName, lexer);
+  })
+
+  // Just read each token and return them all...
+  var token;
+  var tokens = [];
+  while(token = lexer.next_token()) {
+    // we can't handle local dialects but at least we
+    // can handle file level #used ones:
+    if(token.text === "#use") {
+      tokens.push(token); // push the "#use"
+      tokens.push(lexer.next_token()); // push the opening quote
+      var dialectNameToken = lexer.next_token();
+      tokens.push(dialectNameToken);
+      use_dialect(dialectNameToken.text, lexer);
+    }
+    else {
+      tokens.push(token);
+    }
+  }
+  return tokens;
+}
+
+
+/**
+* Use the specified dialect (e.g. "plus", "html", etc.) for the source
+* file being read by the specified Lexer.
+*
+* A "use" can be at file level (i.e. the "#use" directive) or a a "local
+* dialect" with a smaller scope (normally established via a readtab
+* entry or a "(use...)" expression).  Local dialects should pass
+* options.local=true, otherwise they're assumed to be "file level".
+*
+* Dialects are simply commonjs modules that export (at least one of):
+*    lextab = table of token definitions using regular expressions
+*    readtab = table for handling custom syntax
+*    gentab = table of javascript code generation and macro functions
+*
+* Note our "readtab" plays a similar role but is structured a little differently
+* than the Common Lisp "read table" (e.g. we are driven by whole tokens not just
+* the first characters of them).
+*
+* A Lexer keeps an array of the dialect modules that have been "used"
+* in that particular file (with the most recently used at the front).
+*
+* Returned is the loaded and prepped dialect object
+*  (if the dialect requires code output at the point of "#use", the
+*   code has been loaded and is available on the property ".onusecode")
+*/
+function use_dialect(dialectOrName, lexer, options) {
+
+  options = options || {};
+  var dialect;
+  var dialectName;
+  if(typeof dialectOrName === 'string') {
+    dialectName = dialectOrName;
+  }
+  else {
+    dialect = dialectOrName;
+  }
+
+  // we only allow one of each "file level" dialect...
+  if(!options.local) {
+    var alreadyLoadedDialect;
+    if(dialectName) {
+      // has this named dialect already been loaded?
+      alreadyLoadedDialect = lexer.dialects.find(function(dialect) {
+        return(dialect.name === dialectName);
+      });
+    }
+    else {
+      // has this dialect object already been loaded?
+      alreadyLoadedDialect = (lexer.dialects.indexOf(dialect) !== -1);
+    }
+
+    // note they can optionally pass options.reload to *force* a reload
+    if(alreadyLoadedDialect && !options.reload)
+    {
+      // just give back the previously loaded file-level dialect
+      return alreadyLoadedDialect;
+    }
+  }
+
+  // note there's some circular dependency issues if dialect-loader
+  // is requried at the top of this reader.js file - but it doesn't happen here
+  slinfo('using dialect:', dialectName ? dialectName :
+                    (dialect && dialect.name ? dialect.name : "?"));
+  if(!dialect) {
+    dialect = options.preloaded || require('./dialect-loader').load(dialectName);
+  }
+
+  // Make sure any dialects this one extends are loaded first
+  if(dialect.extends) {
+    var extendsArr = (Array.isArray(dialect.extends) ?
+                        dialect.extends : [dialect.extends]);
+    extendsArr.forEach(function(baseDialectName) {
+      use_dialect(baseDialectName, lexer, options);
+    });
+  }
+
+  // make sure the dialect provides something to work with...
+  if(!dialect.lextab && !dialect.readtab && !dialect.gentab ) {
+    lexer.error("System error: malformed language extension \"" + dialectName + "\"");
+  }
+
+  // but otherwise the lex/read/generate tables are all optional:
+  // (e.g. they might be using just one of the three)
+  dialect.lextab = dialect.lextab || [];
+  dialect.readtab = dialect.readtab || {};
+  dialect.gentab = dialect.gentab || {};
+
+  // cull a list of non-parenthesized infix/prefix/suffix "operators"...
+  // later "read" transforms these based on precedence (i.e. TDOP "binding powers").
+  // note: though here in core, this is mostly for the benefit of the
+  //   the "sugared" dialects (e.g. plus and sugarscript).  Since core
+  //   is a true lisp it doesn't define infix/prefix/suffix "operators".
+  dialect.readtab.__operators = {};
+  Object.keys(dialect.readtab).forEach(function(sym) {
+    var readfn = dialect.readtab[sym];
+    if(readfn.operator) {
+      dialect.readtab.__operators[sym] = readfn;
+    }
+  });
+  dialect.readtab.__operatorsymbols = Object.keys(dialect.readtab.__operators);
+
+  // onuse is an optional file containing js to insert in the output
+  // at the point of #use.
+  // (this may support lispy code in the future but for now we require js)
+  if(typeof options.onusecode === 'undefined' || options.onusecode) {
+    if(dialect.onuse) {
+      dialect.onusecode = read_include_file(dialect.onuse, lexer);
+    }
+  }
+
+  // Make the new dialect visible within this file
+  lexer.push_dialect(dialect);
+
+  // invoke the (optional) dialect initialization functions:
+  invokeInitDialectFunctions(dialect, lexer, options);
+
+  // return the newly loaded and prepped dialect
+  return dialect;
+}
+
+/**
+* stop using a dialect
+*
+* Whereas "use_dialect" enters the scope of a dialect, "unuse_dialect"
+* exits that scope.
+*
+* @params dialectName = the name of the dialect to stop using, or if
+*  undefined the most recent dialect "used" in the one that's "unused"
+* @params lexer = the lexer for the file being "unused" from.
+*
+* note:  if options.validate is true, the function will *only* "unuse"
+*   the most recent dialect and it's name must match the name you've
+*   given, otherwise an error is thrown.  This validates that you
+*   haven't (accidentally) failed to "unuse" an inner dialect nested
+*   inside another one, leaving the dialect stack in a different state
+*   than you think.
+*/
+function unuse_dialect(dialectName, lexer, options) {
+  options = options || {};
+  if(dialectName && options.validate &&
+    lexer.dialects[0].name !== dialectName)
+  {
+    lexer.error('Attempt to exit dialect "' + dialectName + '" while "' +
+      lexer.dialects[0].name + '" was still active');
+  }
+
+  slinfo('removing dialect', dialectName ? ": " + dialectName : "");
+  var removedDialect = lexer.pop_dialect(dialectName);
+  if(!removedDialect) {
+    lexer.error('The dialect ' + (dialectName ? '"' + dialectName + '"': '') +
+        ' has never been used');
+  }
+
+}
+
+/**
+* Init dialect functions can optionally be used to initialize things
+* at the time a dialect is "used".
+*
+* They can be placed on the dialect, it's lextab, readtab, or gentab,
+* under a key named "__init" (note we use two underscores).
+*
+* They receive as arguments the lexer, the dialect, and the overall
+* options (as passed to "read_from_source".
+*/
+function invokeInitDialectFunctions(dialect, lexer, options) {
+  var initfnkey = "__init";
+  if(dialect[initfnkey]) {
+    dialect[initfnkey](lexer, dialect, options);
+  }
+  if(dialect.lextab[initfnkey]) {
+    dialect.lextab[initfnkey](lexer, dialect, options);
+  }
+  if(dialect.readtab[initfnkey]) {
+    dialect.readtab[initfnkey](lexer, dialect, options);
+  }
+  if(dialect.gentab[initfnkey]) {
+    dialect.gentab[initfnkey](lexer, dialect, options);
+  }
+}
+
+/**
+* Read the form at the current position in the source.
+* @param lexer = the lexer that is reading the source file.
+* @param precedence = internal use only (don't pass)
+* @return the list (see sl-types) for the expression that was read.
+*/
+function read(lexer, precedence) {
 
   precedence = precedence || 0;
 
-  var form = read_next_form(source);
-  var dialect = dialect || get_current_dialect(sl.sourceOf(form));
+  var form = read_via_closest_dialect(lexer);
 
   // are we a prefix unary operator?
   var leftForm = form;
   if(sl.isAtom(form)) {
-    var opSpec = getOperatorSpecFor(form, dialect);
-    if(opSpec && opSpec.prefix && opSpec.prefix.read) {
-      leftForm = opSpec.prefix.read(source, opSpec.prefix, form);
+    var opSpec = getOperatorSpecFor(form, lexer.dialects);
+    if(opSpec && isEnabled(opSpec.prefix) && opSpec.prefix.transform &&
+      // "nospace" prefix ops must butt up against their arg so
+      // "--i" not "-- i" this way we can't confuse e.g. (- x y)
+      //  with (-x y)
+      (!opSpec.options || !opSpec.options.nospace || !lexer.onwhitespace(-1)))
+    {
+      leftForm = opSpec.prefix.transform(lexer, opSpec.prefix, form);
     }
   }
 
@@ -82,13 +424,13 @@ function read(source, precedence) {
   // are currently as you see them here: http://www.scriptingmaster.com/javascript/operator-precedence.asp
   // not as you see them here:  http://journal.stuffwithstuff.com/2011/03/19/pratt-parsers-expression-parsing-made-easy/
   var token, opSpecObj;
-  while(!source.eos() && (token = source.peek_token()) &&
-    (opSpecObj = getOperatorSpecFor(token.text, dialect)) &&
-    opSpecObj && (opSpecObj.infix || opSpecObj.postfix))
+  while(!lexer.eos() && (token = lexer.peek_token()) &&
+    (opSpecObj = getOperatorSpecFor(token.text, lexer.dialects)) &&
+    opSpecObj && (isEnabled(opSpecObj.infix) || isEnabled(opSpecObj.postfix)))
   {
     // make sure we don't misinterpet e.g. "(get ++i)" as "(get++ i)"
    if(opSpecObj.prefix && opSpecObj.postfix &&
-     (source.onwhitespace(-1) && !source.onwhitespace(token.text.length)))
+     (lexer.onwhitespace(-1) && !lexer.onwhitespace(token.text.length)))
    {
      break; // let it be prefix next time round
    }
@@ -103,216 +445,238 @@ function read(source, precedence) {
       break; // stop scanning
     }
 
-    token = source.next_token();
-    leftForm = opSpec.read(source, opSpec, leftForm, sl.atom(token));
+    token = lexer.next_token();
+    leftForm = opSpec.transform(lexer, opSpec, leftForm, sl.atom(token));
+  }
+
+  if(sl.isList(leftForm)) {
+    // now that we've finished reading the list,
+    // pop any local dialects whose scope has ended
+    pop_local_dialects(lexer, leftForm);
   }
 
   return leftForm;
 }
 
-// helper for read above that avoids doing unnecessary lookups
-// if a peek was just done
-function read_next_form(source) {
-  var form;
-
-  // when a peek was just done, often we will still be sitting
-  // on the same position and already know the entry to use:
-  if(!(source.lastSyntaxEntry &&
-      source.lastSyntaxEntryPos === source.position)) {
-    // a peek wasn't just done though:
-    form = invoke_read_function(source);
-  }
-  else {
-    // read the thing just peeked:
-    form = read_from_syntax_entries(source.lastSyntaxEntry, source);
-    if(!form) {
-      source.error('Invalid response from cached syntax entry for "' + source.snoop(10) + '..."');
-    }
-    if(isretryablematch(form) ) {
-      // so the entry that had been stored (from doing a peek)
-      // turned out to not handle the form - go back and try again:
-      form = invoke_read_function(source);
-    }
-  }
-  return form;
+function isEnabled(opSpecObj) {
+  return (opSpecObj &&
+    ((!opSpecObj.options ||
+      (typeof opSpecObj.options.enabled === 'undefined') ||
+      opSpecObj.options.enabled)));
 }
 
 /**
-* Find and execute the appropriate read function for the code
-* under the current position and return the forms that are read.
+* Read the form under the current position, using the closest scoped
+* dialect that contains a matching entry in it's readtab.
 *
-* The search starts in the current syntax in the current dialect.
-* If the read function returns reader.retry_match it will retry
-* starting with the next lowest priority syntax entry, and failing
-* that, with the next dialect in the closest surrounding lexical scope.
-*
-* If options.exec is false, instead of executing the read function it
-* will simply return the following metadata about the first matching
-* syntax entry it finds:
-*
-*   {
-*      match: the matched text (starting from current position)
-*      read: the read function to be invoked
-*      syntax: the syntax table that holds the read function above
-*   }
-*
+* If such an entry returns "reader.retry", try the
+* *next* closest dialect with a match (and so on) until one
+* of the dialect's reads the form, otherwise it gets read by
+* the closest "__default" handler.
 */
 
-function invoke_read_function(source, options) {
-  var form = retry_match;
+function read_via_closest_dialect(lexer, options) {
+  trace(lexer.message_src_loc("", lexer, {file:false}));
+
+  // options allow this function to be used when a readtab
+  // handler needs to read by invoking a handler that it's
+  // overridden, without knowing what dialect was overridden.
+  // (see invoke_readfn_overridden_by below)
   options = options || {};
-  var currDialect = get_current_dialect(source);
-  debug('matching in syntax table of "' + currDialect.__dialectname + '"');
-  trace(source.message_src_loc("", source, {file:false}));
-  // we search in priority (e.g. longest to shortest) order:
-  var matchkeys = currDialect.syntax.__matchkeys;
-  for(var i = 0; isretryablematch(form) && i < matchkeys.length; i++) {
+  // normally we start with the close dialect (0)
+  var startingDialect = options.startingDialect || 0;
 
-    // entries are normally just strings but they can also
-    // be matcher objects (e.g. using regexes)
-    var entry = undefined;
-    var syntaxval = currDialect.syntax[matchkeys[i]];
+  // And normally we read the source text under the current position
+  // unless they give us a token that's already been read)
+  var token = options.token;
+  if(!token) {
+    // we *peek* when determining which readtab read function to call,
+    // so the read functions can consume the *entire* form, including the
+    // first token (which makes the design of the read functions easier
+    // easier to understand and test in isolation).
+    token = lexer.peek_token();
+  }
 
-    // if it's a list of entries the most recent takes precedence
-    var firstval = (Array.isArray(syntaxval) ? syntaxval[0] : syntaxval);
-    if(typeof firstval === 'function') {
-      // we "match partial" if this is an operator e.g. "--a" should return "--"
-      if(source.on(matchkeys[i], firstval.operator)) {
-        entry = {
-          match: matchkeys[i],
-          read: syntaxval,
-          syntax: currDialect.syntax
-        };
-      }
-    }
-    else if(typeof firstval === 'object' && firstval.match) {
-      entry = match_syntax_matcher(syntaxval, source);
-    }
-    else {
-      // it could be e.g. "__matchkeys"
-      // (by convention such things we prefix with two underscores)
-      if(matchkeys[i].indexOf('__') === 0) {
-        continue;
-      }
-
-      // this may be an operator:
-      if(typeof firstval === 'object' &&
-        (firstval.infix || firstval.prefix || firstval.postfix || firstval.type))
-      {
-        continue;
-      }
-
-      // this seems to be a bad entry in the syntax
-      source.error('Malformed syntax entry for "' + matchkeys[i] +
-                    '" in dialect "' + currDialect.__dialectname + '"');
-    }
-
-    if(entry) {
-      debug('syntax entry for "' + entry.match +
-                '" found in dialect "' + currDialect.__dialectname + '"' +
-                (currDialect.__dialectname != firstval.__dialectname ?
-                  ' (inherited from "' + firstval.__dialectname + '")' : ""));
-
-      // they can stop here if they want:
-      if(typeof options.exec !== 'undefined' && !options.exec) {
-        return entry;
-      }
-
-      form = read_from_syntax_entries(entry, source);
+  debug('reading expression starting "' + token.text + '"');
+  var form = retry;
+  var readfn;
+  // try the dialects from beginning (inner scope) to end (outer scope)...
+  for(var i = startingDialect; isretry(form) && i < lexer.dialects.length; i++) {
+    var dialect = lexer.dialects[i];
+    debug('looking for "' + token.text + '" in ' + dialect.name + ' readtab');
+    readfn = findReadfn(dialect.readtab, token)
+    if(readfn) {
+      form = read_via_readfn(readfn, lexer, token.text);
       if(!form) {
-        source.error('Invalid response from "' + entry.match + '" entry in "' +
-          currDialect.__dialectname + '"');
+        lexer.error('Invalid response from "' + token.text + '" readtab function in "' +
+          dialect.name + '"');
       }
     }
   }
 
-  // if we've tried them all and not found a match...
-  if(isretryablematch(form)) {
-
-    var currSyntax = currDialect.syntax;
-    if(currSyntax.__readdefault && currSyntax.__readdefaulttoken) {
-
-      // the __readdefault function is an (optional) catchall.
-      // it's taken from the current (top most) dialect
-      // (though it may have merged up from the lower ones).
-      // since it's not clear what token text it will match,
-      // they provide the complementary "__readdefaulttoken" which
-      // should return the same token "__readdefault" will consume
-      debug('using __readdefault...');
-      var willmatch = "?";
-
-      // ensure reading the token doesn't advance the
-      // current position using "rewind"
-      source.mark_rewind_point();
-      source.peekingToken = true;
-      var willmatchtoken = currSyntax.__readdefaulttoken(source);
-      this.peekingToken = false;
-      source.rewind();
-      if(willmatchtoken) {
-        willmatch = willmatchtoken.text;
-      }
-
-      var entry = {
-        match: willmatch,
-        read: currSyntax.__readdefault,
-        syntax: currSyntax
-      };
-
-      if(typeof options.exec !== 'undefined' && !options.exec) {
-        return entry;
-      }
-      else {
-        form = read_from_syntax_entries(entry, source);
+  // if we've tried all the dialects and either didn't find a match,
+  // or found a match that returned "reader.retry"...
+  if(isretry(form)) {
+    // try all the dialects again, this time looking for "__default"
+    // note: most likely this will get all the way to core's __default,
+    //   but dialect's *can* override __default if they need to, and
+    //   could e.g. "selectively" override it by returning reader.retry in
+    //   cases where they want core's __default to handle it instead.
+    for(var i = startingDialect; isretry(form) && i < lexer.dialects.length; i++) {
+      var dialect = lexer.dialects[i];
+      debug('looking for "__default" in ' + dialect.name + ' readtab');
+      readfn = dialect.readtab !== undefined ? dialect.readtab['__default'] : undefined;
+      if(readfn) {
+        form = read_via_readfn(readfn, lexer, token.text);
         if(!form) {
-          source.error('Invalid response from __readdefault in "' + currDialect.__dialectname + '"');
+          lexer.error('Invalid response for "' + token.text +
+            '" returned by __default function in "' + dialect.name + '"');
         }
       }
     }
   }
-  if(!form || isretryablematch(form)) {
-    source.error('Failed to read text starting "' + source.snoop(10) + '..." via "' + currDialect.__dialectname + '"');
+
+  // this should never happen (because of __default) but JIC:
+  if(!form || isretry(form)) {
+    lexer.error('No dialect handled the text starting "' + lexer.snoop(10) + '...');
   }
+
   return form;
 }
 
+function invoke_readfn_overridden_by(overridingDialectName, readFnName, lexer) {
+
+  // find the overriding dialect's index
+  var overriding = -1;
+  for(var i = 0; overriding === -1 && i < lexer.dialects.length; i++) {
+    if(lexer.dialects[i].name === overridingDialectName) {
+      overriding = i;
+    }
+  }
+
+  return read_via_closest_dialect(lexer, {
+            startingDialect: overriding+1,
+            token : { text: readFnName, category: 'symbol' }
+          });
+}
+
+function findReadfn(readtab, token) {
+  var readfn;
+
+  if(readtab) {
+    // first try just the token text (this is typically what is used)
+    readfn = readtab[token.text];
+
+    // but ignore inherited properties e.g. "toString" etc.
+    if(readfn && !readtab.hasOwnProperty(token.text)) {
+      readfn = undefined;
+    }
+
+    if(!readfn && token.category) {
+      // next try the token text qualified by it's token category
+      readfn = readtab[token.text + ':' + token.category];
+      if(!readfn && token.category) {
+        // finally try the wildcarded token category (e.g. "*:float")
+        readfn = readtab['*:' + token.category];
+      }
+    }
+  }
+  return readfn;
+}
+
+/**
+* invoke a "read function" (found in the readtab) to read the
+* form and return it.
+*
+* If a local dialect is assigned, activate the local dialect
+* while reading the form, and assign the local dialect to the
+* returned form for use by code generation.
+*/
+function read_via_readfn(readfn, lexer, text) {
+  var form;
+
+  // is there a name specified for a "local dialect"?
+  if(readfn.dialect) {
+    // use_dialect will load the dialect and push it on the dialect stack
+    var localdialect = use_dialect(readfn.dialect, lexer, {local: true});
+
+    // (now when the read function is called, any reading *it* does
+    // will have the lextab and readtab of the local dialect available)
+  }
+
+  // call the read function...
+  form = readfn(lexer, text);
+
+  // if we got a form back and there is a local dialect...
+  if(readfn.dialect) {
+    if(form && !isretry(form)) {
+      // save the local dialect's name on the form so that:
+      // a. the local dialect can be popped when the end of
+      //    the *containing* list is reached.
+      // b. code generation can activate the same dialect
+      //    when generating the form's code (without them
+      //    having to assign the same dialect in the gentab
+      //    that they've already assigned here in the readtab).
+      form.dialect = readfn.dialect; // note this is the *name*
+    }
+    else {
+      // didn't work out - so the local dialect doesn't apply:
+      unuse_dialect(readfn.dialect, lexer);
+    }
+  }
+
+  return form;
+}
+
+/*
+GETTING INDIVIDUAL DIALECTS DONT MAKE AS MUCH SENSE SINCE WE'RE
+NO LONGER MERGING DIALECTS.
+THIS SHOULD BE ABLE TO BE DELETED
 // get the current (closest scoped) dialect
 // forForm is the form you're needing the dialect for (it is optional)
 // if forForm is omitted you're getting the most recently created dialect (period)
 // if there are no local dialects the most recent file level dialect is returned
-function get_current_dialect(source, forForm, named) {
-  trace("get_current_dialect: " + (forForm ? "using form" : "using source.currentForm"));
+function get_current_dialect(lexer, forForm, named) {
+  return lexer.dialects[0];
+
+  trace("get_current_dialect: " + (forForm ? "using form" : "using lexer.currentForm"));
   var currDialect = (forForm ?
                         get_closest_scoped_dialect_for(forForm, named) :
-                        get_closest_scoped_dialect_for(source.currentForm, named));
-  if(!currDialect && source.lastReadList) {
-    trace("get_current_dialect checking source.lastReadList")
-    currDialect = get_closest_scoped_dialect_for(source.lastReadList, named);
+                        get_closest_scoped_dialect_for(lexer.currentForm, named));
+  if(!currDialect && lexer.lastReadList) {
+    trace("get_current_dialect checking lexer.lastReadList")
+    currDialect = get_closest_scoped_dialect_for(lexer.lastReadList, named);
   }
   if(!currDialect) {
-    trace("get_current_dialect checking source.dialects[0]")
+    trace("get_current_dialect checking lexer.dialects[0]")
     // no dialect on a form, use the file last #used file level dialect
     if(named) {
-      currDialect = source.dialects.find(function(dialect) {
-        return(dialect.__dialectname === named);
+      currDialect = lexer.dialects.find(function(dialect) {
+        return(dialect.name === named);
       })
       if(!currDialect) {
         console.log("warning: this file is missing a dialect named:", named)
       }
     }
     else {
-      currDialect = source.dialects[0];
+      currDialect = lexer.dialects[0];
     }
   }
   return currDialect;
 }
+*/
 
+/*
+GETTING INDIVIDUAL DIALECTS DONT MAKE AS MUCH SENSE SINCE WE'RE
+NO LONGER MERGING DIALECTS.
+THIS SHOULD BE ABLE TO BE DELETED
 // find the closest dialect from the startingForm
 // you may optionally get a dialect with a specified name
 function get_closest_scoped_dialect_for(startingForm, named) {
   if(startingForm) {
     if(startingForm.dialect &&
         (typeof named === "undefined" ||
-          startingForm.dialect.__dialectname === named))
+          startingForm.dialect.name === named))
     {
       return startingForm.dialect;
     }
@@ -322,37 +686,28 @@ function get_closest_scoped_dialect_for(startingForm, named) {
   }
   return undefined;
 }
+*/
 
-// read from what may be a single syntax table entry or an array of them
-// if an array each entry's read fn is called until one says not to retry
-function read_from_syntax_entries(entryOrArray, source) {
-  var form = retry_match;
-  var entries = Array.isArray(entryOrArray) ? entryOrArray : [entryOrArray];
-  for(var i = 0; isretryablematch(form) && i < entries.length; i++) {
-    if(!Array.isArray(entries[i].read)) {
-      // invoke the read function
-      form = read_from_syntax_entry(entries[i], source);
-    }
-    else {
-      var readfnarray = entries[i].read;
-      for(var j = 0; isretryablematch(form) && j < readfnarray.length; j++) {
-        entries[i].read = readfnarray[j];
-        form = read_from_syntax_entry(entries[i], source);
-      }
-      entries[i].read = readfnarray;
-    }
-  }
-  return form;
-}
-
-// read by calling the read fn of the specified single syntax table entry
-function read_from_syntax_entry(entry, source) {
+/*
+OLD DELETE
+// read by calling the read fn of the specified readtab entry
+// THIS FUNCTION NOW SEEMS SILLY - IT REALLY SHOULD JUST BE A CALL TO THE
+// READTAB FUNCTION SHOULDNT IT?  IE THIS FUNCTION COULD/SHOULD GO AWAY!
+function read_via_readtab_entry(readfn, lexer, token) {
   // invoke the read function
-  var form = entry.read(source, entry.match);
-
+  var form;
+if(typeof entry === 'function') {
+  form = readfn(lexer, token.text);
+}
+else {
+console.log('IF YOU NEVER SEE THIS (AND YOU SHOULDNT) THEN CLEAN UP read_via_readtab_entry')
+ form = readfn.read(lexer, readfn.match);
+}
   // did we get a form back?
   // note: syntax fns return undefined to mean "I don't handle this"
   if(typeof form !== 'undefined') {
+// SO *ALL* OF THIS STUFF FEELS MISPLACED!!!  IT SHOULD/COULD
+// ALL BE DONE MORE APPROPRIATELY ELSEWHERE??!!!
 
     // as a convenience add toJSON where it's missing
     // (need to confirm - are we really making use of this anymore?)
@@ -364,109 +719,184 @@ function read_from_syntax_entry(entry, source) {
 
     // KIND OF A HACK - AM STILL HOPING TO CLEAN UP AND ASSIGN THE SOURCE ON ALL FORMS PROPERLY
     if(!form.sourcer) {
-      form.sourcer = source;
+      form.sourcer = lexer;
     }
 
     // why is this not in the read_delimited_list function?  can it go there?
-    if(!isretryablematch(form) && !isignorableform(form)) {
-      source.lastReadFormInList = form;
+    if(!isretry(form) && !isignorableform(form)) {
+      lexer.lastReadFormInList = form;
     }
   }
 
   return form;
 }
+*/
 
-function read_from_source(codestr, filenameOrSource, options) {
+/**
+* read a list of atoms and/or other lists surrounded by delimiters (), [], etc.
+* start is the expected opening delimiter as a string (or an existing start token
+* if the opening delimiter has already been read)
+* end is the expected end delimiter as a string
+* initial is an optional array containing values prepopulated in the list
+* separatorRE is an optional RE for "separators" to be skipped e.g. /,/
+*/
+function read_delimited_list(lexer, start, end, initial, separatorRE) {
+    start = start || '(';
+    end = end || ')';
+    separatorRE = separatorRE || /,+/g;
+    var startToken = (start && typeof start === 'string' ? lexer.next_token(start) : start);
 
-  options = options || {};
-  var source;
-  var filename;
-  if(filenameOrSource instanceof src.Source) {
-     source = filenameOrSource;
-     filename = source.filename;
-  }
-  else {
-    filename = filenameOrSource;
-  }
+    var list = (initial && sl.isList(initial) ? initial : sl.listFromArray(initial || []));
+    list.setOpening(startToken);
 
-  var fileext = utils.getFileExt(filename, "slisp");
+    // starting a new list
+    var token;
+    while (!lexer.eos() && (token = lexer.peek_token()) && token && token.text !== end) {
+      var nextform = read(lexer);
 
-  var dialectNames = filetypes[fileext];
-  if(!dialectNames) {
-    throw new Error(filename + " is not a recognized sugarlisp file type.");
-  }
+      // some "directives" don't return an actual form:
+      if(!isignorableform(nextform)) {
+        list.push(nextform);
+      }
 
-  if(typeof options.autouse === 'undefined' || options.autouse) {
-    // then add the others
-    for (var i=dialectNames.length; i--; ) {
-      var dialectName = dialectNames[i];
-      if(dialectName !== 'core') {
-        // prepend #uses just as if they'd done it themselves
-        // DELETE use_dialect(dialectName, source);
-        codestr = '#use "' + dialectName +  '"\n' + codestr;
+      // if they gave a separator (e.g. commas)
+      if(separatorRE && lexer.on(separatorRE)) {
+        lexer.skip_text(separatorRE); // just skip it
       }
     }
-  }
+    if (!token || lexer.eos()) {
+        lexer.error("Missing \"" + end + "\" ?  (expected \"" + end + "\", got EOF)", startToken);
+    }
+    var endToken = lexer.next_token(end); // skip the end token
+    list.setClosing(endToken);
 
-  if (typeof options.includeComments === 'undefined') {
-    options.includeComments = false;
-  }
+// IF THIS IS HERE IT HAS TO BE SMARTER - IT WAS ELIMINATING THE TOP LEVEL PAREN wrapper
+// (AROUND THE WHOLE FILE) AND CAUSING PROBLEMS
+// WOULDNT IT ALSO ELIMINATE A NO-ARG CALL?  SOMETHING LIKE (obj.run) ?
+    // we can get extra parens when e.g. the user used parens around
+    // an infix expression (which the reader reads as a nested list)
+    // if(list.length === 1 && sl.isList(list[0])) {
+    //   list = list[0];
+    // }
 
-  // wrap in an extra () because the top level may have multiple
-  // expressions and/or comments
-  // first return just ensures column numbers aren't off by one on first line
-  // second return important to make sure a line comment doesn't eat the closing ")"
-  if(options.wrapOuterForm !== 'no') {
-    codestr = "(\n" + codestr + "\n)\n";
-    options.wrapHeadHeight = 1;
-    debug("reading wrapped code:", codestr);
-  }
+/*
+DELETE?
+IT CANT BE USED ITS CHECKING FOR THE OLD EXTENSION 'lispy'!!!
+DOES THIS ALSO MEAN THE __parenoptional STUFF CAN BE DELETED AS WELL??!!
+    // in a lispy file they use parens whereas paren-free in a scripty file
+    if(list.length === 1 && sl.isList(list[0])
+      && list[0].__parenoptional && lexer.fileext === 'lispy')
+    {
+      // so here we have to *remove* what's otherwise *extra* parens:
+      list = list[0];
+    }
+*/
 
-  if(!source) {
-    // create a Source object per file that holds state
-    // e.g. the current position when reading the file
-    source = new src.Source(codestr, filename, module.exports, options);
-  }
+// OLD DELETE    lexer.lastReadList = list;
 
-  if(!ctx.source) {
-    // make the Source we're reading available via the context
-    ctx.source = source;
-  }
-
-  // bootstrap the core dialect which everything must have
-  use_dialect('core', source);
-
-  // read the form
-  var forms = read(source);
-
-  // the current form is used during reading but is no longer
-  // valid now that reading is complete:
-  source.reading_completed();
-
-  // we often look "up" the lexical nesting of forms...
-  // to make this easy/reliable - walk the form tree setting "parent"
-  if(options.setParents !== 'no') {
-    forms.setParents();
-  }
-
-  return forms;
+    return list;
 }
 
 /**
+* pop any local dialects enabled within the scope of the
+* provided list.
+*
+* note:  here we intentionally look just one level down at
+*   the *direct* children of the list, since "grandchildren"
+*   have scopes of their own that are "popped" separately.
+*/
+function pop_local_dialects(lexer, list) {
+  if(list && list.length > 0) {
+    // we go in reverse order since the most recently
+    // used (pushed) dialects will be at the end
+    for(var i = list.length-1; i >= 0; i--) {
+      if(list[i].dialect) {
+        unuse_dialect(list[i].dialect, lexer);
+      }
+    }
+  }
+}
+
+/**
+* in javascript certain parens e.g. around conditions for "if" and
+* "while" etc. are *required* as part of the grammar.  This function
+* accommodates that by "reaching inside" those parens when they wouldn't
+* (in a lispy world) have been needed, or otherwise returns the
+* s-expression normally.  Consider e.g.:
+*   if(true) {...}
+* versus
+*   if(x > y) {...}
+* in the first case we simply return the atom true, whereas in the second
+* case the list (> x y).
+*/
+function read_wrapped_delimited_list(lexer, start, end, initial, separatorRE) {
+
+  var list = read_delimited_list(lexer, start, end, initial, separatorRE);
+  if(list.length === 1) // DEL? &&
+// DEL?    (sl.isList(list[0]) || sl.typeOf(list[0]) === 'boolean'))
+  {
+      // there's an extra nesting level than needed:
+      list = list[0];
+  }
+  return list;
+}
+
+/**
+* scan some delimited text and get it as a string atom
+* lexer.options.omitDelimiters = whether to include the include the delimiters or not
+*/
+function read_delimited_text(lexer, start, end, options) {
+  options = options || {includeDelimiters: true};
+  var delimited = lexer.next_delimited_token(start, end, options);
+  return sl.atom(delimited);
+}
+
+/*
+OLD DELETE
+function match_syntax_matcher(matcherOrArray, lexer) {
+  var entry;
+  var matched;
+  var matcher = Array.isArray(matcherOrArray) ? matcherOrArray[0] : matcherOrArray;
+  if(matcher.match instanceof RegExp || typeof matcher.match === 'string') {
+    matched = lexer.on(matcher.match)
+  }
+  else if(matcher.match instanceof Function) {
+    // note that lexer.on does accept a function but there it's expect to
+    // check single characters whereas in the matcher it's expected to be
+    // a full blown replacement for matching the front of the lexer.
+    matched = matcher.match(lexer)
+  }
+  else {
+    lexer.error("Unknown match type in readrules: " + matcher);
+  }
+
+  if(matched) {
+    entry = {
+      match: matched,
+      read: matcher.read
+    };
+  }
+  return entry;
+}
+*/
+
+/**
 * Read the content of the specified filename
-* into the specified source file.  If the file has a .js
+* into the specified lexer file.  If the file has a .js
 * extension a string of the js content is returned,
 * otherwise the lispy forms are returned.
 *
-* note: this does *not* expand the expressions read
-*  in, that's left up to the downstream processing
+* Note that if a lexer is provided the dialects currently
+* in use *are* applied when lexing/reading the included
+* file (consistent with the view that an include treats
+* it's contents the same as if it had been "inline").
 */
-function read_include_file(filename, source) {
+function read_include_file(filename, lexer) {
 
   var includedForms;
   var foundFile = false;
 
-  var all_dirs = include_dirs.concat([path.dirname(source.filename)]);
+  var all_dirs = include_dirs.concat([path.dirname(lexer.filename)]);
   all_dirs = all_dirs.concat([path.dirname(filename)]);
 
   var fullPath;
@@ -486,20 +916,20 @@ function read_include_file(filename, source) {
   });
 
   if (!foundFile) {
-    source.error('No such include file: ' + filename);
+    lexer.error('No such include file: ' + filename);
   }
   trace("the include file was found at " + fullPath);
 
-  // assuming we've gotten the source we're reading into...
-  if(source) {
-    if(!source.included) {
-      source.included = [];
+  // assuming we've gotten the lexer we're reading into...
+  if(lexer) {
+    if(!lexer.included) {
+      lexer.included = [];
     }
 
     // prevent reading the same include file multiple times
     // (e.g. prevent circular includes)
-    if (source.included.indexOf(filename) === -1) {
-      source.included.push(filename);
+    if (lexer.included.indexOf(filename) === -1) {
+      lexer.included.push(filename);
       var code = fs.readFileSync(filename, "utf-8");
       if(path.extname(filename) === '.js') {
         // this was a javascript file just return the code as a string
@@ -510,7 +940,7 @@ function read_include_file(filename, source) {
     }
   }
   else {
-    // no source given - read it anyway:
+    // no lexer given - read it anyway:
     var code = fs.readFileSync(filename)
     includedForms = read_from_source(code, filename, {wrapOuterForm: true});
   }
@@ -518,44 +948,20 @@ function read_include_file(filename, source) {
   return includedForms;
 }
 
-function match_syntax_matcher(matcherOrArray, source) {
-  var entry;
-  var matched;
-  var matcher = Array.isArray(matcherOrArray) ? matcherOrArray[0] : matcherOrArray;
-  if(matcher.match instanceof RegExp || typeof matcher.match === 'string') {
-    matched = source.on(matcher.match)
-  }
-  else if(matcher.match instanceof Function) {
-    // note that source.on does accept a function but there it's expect to
-    // check single characters whereas in the matcher it's expected to be
-    // a full blown replacement for matching the front of the source.
-    matched = matcher.match(source)
-  }
-  else {
-    source.error("Unknown match type in readrules: " + matcher);
-  }
-
-  if(matched) {
-    entry = {
-      match: matched,
-      read: matcher.read
-    };
-  }
-  return entry;
-}
-
 /**
 * Get the syntax's keys sorted by priority,
 * where "priority" is an optional number they can assign
 * the syntax entries, otherwise the length of its key
 */
+/*
+OLD DELETE
 function get_prioritized_matchkeys(syntax) {
 
   // Provide an easy way to search these from longest to shortest
   var keys = Object.keys(syntax);
 
   keys = keys.filter(function (value) {
-    return(value !== "__readdefault" && value !== "__readdefaulttoken");
+    return(value !== "__default" && value !== "__readdefaulttoken");
   });
 
   keys.sort(function(a, b) {
@@ -566,6 +972,7 @@ function get_prioritized_matchkeys(syntax) {
 
   return keys;
 }
+*/
 
 // generate a random variable name compatible with languages like javascript
 function gen_var_name(seedName) {
@@ -580,230 +987,14 @@ function gen_var_name(seedName) {
 }
 
 /**
-* Enable the dialect (e.g. "html", "async") within the specified "source" (Source).
-*
-* Dialects are simply commonjs modules expected to export (at least):
-*    syntax (= the read table for handling custom syntax)
-*    keywords (javascript code generation and macro functions)
-*
-* Each Source object keeps a list of the dialect modules enabled via "#use"
-* in that particular file, in the reverse order the "#uses" occur.
-*
-* Returned is the loaded and prepped dialect object
-*  (if the dialect requires code output at the point of "#use", the
-*   code has been loaded and is available on the property ".onusecode")
-*/
-function use_dialect(dialectName, source, options) {
-
-  options = options || {};
-
-  // has this dialect already been loaded
-  var alreadyLoadedDialect = source.dialects.find(function(dialect) {
-    return(dialect.__dialectname === dialectName);
-  });
-
-  // they specify options.filelevel = false when they're a "local dialect"
-  // or they can pass options.reload to *force* a reload of a dialect
-  if(alreadyLoadedDialect &&
-    (typeof options.filelevel === 'undefined' || options.filelevel) &&
-    !options.reload)
-  {
-    // but otherwise just give back the previously loaded dialect
-    return alreadyLoadedDialect;
-  }
-
-  // note there's some circular dependency issues if dialect-loader
-  // was loaded at the top of this reader.js file - but that doesn't happen here
-  slinfo('using dialect:', dialectName);
-  var dialect = options.preloaded || require('./dialect-loader').load(dialectName);
-// TEMPORARY HACK TO GET ATOM PREVIEW WORKING?
-//console.log('skipping dialect-loader doing straight require of sugarlisp-' + dialectName);
-//  var dialect = options.preloaded || require('sugarlisp-' + dialectName);
-
-
-  // they can specify (optional) init functions at the
-  // dialect or the syntax/keyword levels - the naming is like
-  // e.g. __html_init:
-  var initfnkey = "__" + dialectName + "_init";
-
-  if(alreadyLoadedDialect &&
-    typeof options.filelevel !== 'undefined' && !options.filelevel)
-  {
-    slinfo('cloning local dialect from an already loaded one:', dialectName);
-
-    // this is a local dialect not a file level dialect
-    // so make sure they have a clone of the dialect object
-    // returned by require.
-    dialect = utils.mergeInto({}, dialect);
-
-    // invoke any custom init functions for this new dialect
-    invokeInitDialectFunctions(dialect, initfnkey, source, options);
-
-    // and for a local instance of an already loaded dialect
-    // this is all we do (yes this is a shallow copy sharing
-    // the syntax/keyword etc. tables with the previous.
-    return dialect;
-  }
-
-  // for debugging it's convenient to have the name visible in the dialect:
-  dialect.__dialectname = dialectName;
-
-  // if they do '#use "core"' we take it that they want to
-  // *downgrade* the default dialects (which include more
-  // than just core) and start over from just core:
-// THIS DOESN'T WORK ANYMORE SINCE I STOP THE LOAD ABOVE IF ITS ALREADY LOADED
-// I NEED SOME WAY TO DISTINGUISH #use "core" FROM THE "extends" STUFF TO ADD IT BACK
-// IT MAY BE LAZY INITIALIZING source.dialects RIGHT NOW BUT THAT IS ALL
-  if(dialectName === 'core' || !source.dialects) {
-    source.dialects = [];
-  }
-
-  // Make sure any dialects this one depends on are loaded first
-  // note: the extends feature often leads to modules that assume
-  //   the paren-free features of "scripty".  These are sometimes
-  //   causing trouble in lispy core files - at least for now
-  //   it seems better to just require they fully "#use" *all*
-  //   dependent dialects in .slisp files.
-  if(source.fileext !== 'slisp' && dialect.extends) {
-    var extendsArr = (Array.isArray(dialect.extends) ?
-                        dialect.extends : [dialect.extends]);
-    extendsArr.forEach(function(dependentDialectName) {
-      use_dialect(dependentDialectName, source, options);
-    });
-  }
-
-  // the syntax and keyword tables are optional:
-  dialect.syntax = dialect.syntax || {};
-  dialect.keywords = dialect.keywords || {};
-
-  dialect.keywords = dialect.keywords || {};
-
-  // in core only - handlers in the keyword table may
-  // have no special (custom) syntax - in that case enter
-  // such keywords in the syntax table as symbols (so they
-  // don't have to entered there manually).
-  // note: this was originally done for *all* the dialects,
-  //   but it was leading to "masking" of lower level
-  //   dialect's syntax entries.
-  if(dialectName === 'core') {
-    Object.keys(dialect.keywords).forEach(function(keyword) {
-      if(!dialect.syntax[keyword] && keyword !== initfnkey) {
-        trace("entering keyword symbol omitted from syntax table:", keyword);
-        dialect.syntax[keyword] = symbol;
-      }
-    });
-  }
-
-  // now mark the syntax and keyword handlers so that
-  // after merging we still know which dialect they
-  // originated in (this is mainly just for debugging)
-  Object.keys(dialect.syntax).forEach(function(sym) {
-    dialect.syntax[sym].__dialectname = dialectName;
-  });
-  Object.keys(dialect.keywords).forEach(function(keyword) {
-    dialect.keywords[keyword].__dialectname = dialectName;
-  });
-
-  // Merge the syntax and keywords from the other dialects into this one,
-  // omitting properties if they have the same name (so that this dialect
-  // overrides properties of the same name in in't "extends" dialects):
-
-  // note: this is how mixins are traditionally done in javascript
-  //   (though see "flight mixin" for a nice alternative).  And this is
-  //   also similar to how readtables are handled in Common Lisp - they
-  //   copy then modify the current readtable when doing reader macros
-  //   to handle custom syntax.
-
-  // note: we merge things such that keys in dialects "#used" later in
-  // in the source file win over keys of the same name #used earlier.
-  if(typeof options.merge === 'undefined' || options.merge) {
-    source.dialects.forEach(function(loadedDialect) {
-      if(loadedDialect.syntax) {
-        mergeLookupTables(dialect.syntax, loadedDialect.syntax);
-      }
-      if(loadedDialect.keywords) {
-        mergeLookupTables(dialect.keywords, loadedDialect.keywords);
-      }
-    });
-  }
-
-  // cull a short list of just the infix/prefix/suffix operators
-  // (that we transform using precedence rules)
-  dialect.syntax.__operators = {};
-  Object.keys(dialect.syntax).forEach(function(sym) {
-    var syntaxentry = dialect.syntax[sym];
-
-    var opSpec = Array.isArray(syntaxentry) && syntaxentry.length > 0 ?
-                        syntaxentry[0].operator :
-                        syntaxentry.operator;
-    if(opSpec) {
-      dialect.syntax.__operators[sym] = syntaxentry;
-    }
-  });
-  dialect.syntax.__operatorsymbols = Object.keys(dialect.syntax.__operators);
-
-  // we sort the keys of the syntax table in priority order to ensure that
-  // e.g. "<html>" is matched instead of "<", "=>" instead of "=", etc.
-  dialect.syntax.__matchkeys = get_prioritized_matchkeys(dialect.syntax);
-
-  // extract the first characters of the keys that terminate tokens,
-  // as well as the ones that have been specified to *not* terminate tokens
-  var priorDialect = source.dialects.length > 0 ? source.dialects[0] : undefined;
-  var priorTerminating = priorDialect ? priorDialect.__terminatingchars : "()\\";
-  dialect.__terminatingchars = findTerminatingChars(dialect.syntax, priorTerminating);
-  var priorNonterminating = priorDialect ? priorDialect.__nonterminatingchars : "";
-  dialect.__nonterminatingchars = findNonterminatingChars(dialect.syntax, priorNonterminating);
-
-  // it makes no sense if there's neither reader nor transpiler extensions though:
-  if(!dialect.keywords && !dialect.syntax) {
-    source.error("System error: malformed language extension \"" + dialectName + "\"");
-  }
-
-  // onuse is an optional file containing js to insert in the output
-  // at the point of #use.
-  // (this may support lispy code in the future but for now we require js)
-  if(typeof options.onusecode === 'undefined' || options.onusecode) {
-    if(dialect.onuse) {
-      dialect.onusecode = read_include_file(dialect.onuse, source);
-    }
-  }
-
-  if(typeof options.filelevel === 'undefined' || options.filelevel) {
-    // add this dialect to the list of top level dialects for the file
-    // note we put this dialect on the *front* since we search
-    // front to back i.e. consider earlier in the list to have
-    // precedence.
-    source.dialects.unshift(dialect);
-  }
-
-  // invoke the (optional) initialization functions at each level:
-  invokeInitDialectFunctions(dialect, initfnkey, source, options);
-
-  // return the newly loaded and prepped dialect
-  return dialect;
-}
-
-/**
 * Register a dynamic transform so that we know (unlike most
 * transforms) that the specification of transform function,
 * precedence level, etc. will be gotten from the form returned
 * by the specified syntax handler function - dynamically at
 * read time.  optype is one of 'unary' or 'binary'.
 */
-function registerDynamicTransform(optype, syntaxfn) {
-  syntaxfn.operator = { type: optype, style: 'dynamic'}
-}
-
-function invokeInitDialectFunctions(dialect, initfnkey, source, options) {
-  if(dialect[initfnkey]) {
-    dialect[initfnkey](source, dialect, options);
-  }
-  if(dialect.syntax[initfnkey]) {
-    dialect.syntax[initfnkey](source, dialect, options);
-  }
-  if(dialect.keywords[initfnkey]) {
-    dialect.keywords[initfnkey](source, dialect, options);
-  }
+function registerDynamicTransform(optype, readfn) {
+  readfn.operator = { type: optype, style: 'dynamic'}
 }
 
 /**
@@ -817,12 +1008,14 @@ function invokeInitDialectFunctions(dialect, initfnkey, source, options) {
 * (if it helps, you can think of the array as anologous to a prototype chain,
 * and the way the lookup tables merge as a kind of multiple inheritance)
 */
+/*
+OLD DELETE
 function mergeLookupTables() {
 
   // there are certain keys we don't want to merge
   // (there's places in the code that will blow of up if they are)
   var exclude = [
-    "__readdefault",
+    "__default",
     "__readdefaulttoken",
     "__matchkeys",
     "__terminatingchars",
@@ -858,8 +1051,11 @@ function mergeLookupTables() {
   }
   return out;
 }
+*/
 
 // copy from (which might be an array or not) into array toArray
+/*
+OLD DELETE
 function copyToArray(from, toArray) {
   if(Array.isArray(from)) {
     from.forEach(function(val) {
@@ -882,6 +1078,7 @@ function isAtEnd(val, arr) {
   }
   return atEnd;
 }
+*/
 
 /**
 * Terminating characters mark the end of tokens
@@ -899,6 +1096,8 @@ function isAtEnd(val, arr) {
 * characters you can specify this alternative syntax entry:
 *   exports.__terminatingchars = "...";
 */
+/*
+OLD DELETE
 function findTerminatingChars(syntax, initialChars) {
   var terminatingChars = initialChars || "";
   // did they fully specify their own terminating characters?
@@ -914,7 +1113,7 @@ function findTerminatingChars(syntax, initialChars) {
   else {
     // attempt to infer a reasonable set of terminating chars
     syntax.__matchkeys.forEach(function(key) {
-      if((key !== "__readdefault" && key !== "__readdefaulttoken") &&
+      if((key !== "__default" && key !== "__readdefaulttoken") &&
         typeof syntax[key] === 'function')
       {
         var firstChar = key.charAt(0);
@@ -940,6 +1139,7 @@ function findTerminatingChars(syntax, initialChars) {
   debug("Terminating chars:", terminatingChars);
   return terminatingChars;
 }
+*/
 
 /**
 * When found in the middle of a token, nonterminating
@@ -974,6 +1174,8 @@ function findTerminatingChars(syntax, initialChars) {
 * them in the syntax entry:
 *   exports.__nonterminatingchars = "...";
 */
+/*
+OLD DELETE
 function findNonterminatingChars(syntax, initialChars) {
   var nonterminatingChars = initialChars || "";
   // did they specify nonterminating characters?
@@ -989,30 +1191,24 @@ function findNonterminatingChars(syntax, initialChars) {
   debug("Nonterminating chars:", nonterminatingChars);
   return nonterminatingChars;
 }
+*/
 
 /**
-* Terminating characters mark the end of tokens
-*
-* Normally we infer terminating characters from the first
-* characters of the keys in your syntax (other than alphanumeric
-* ones of course).
-*
-* But some characters may be read internally by a read function
-* without using a syntax entry at all.  In that case putting an
-* entry in the syntax with the value "reader.terminating" forces
-* (it's first character) to be "terminating".
+* You mark a symbol with "reader.unexpected" in your readtab
+* if the symbol is read internally by some read function
+* without using a readtab entry at all.
 */
-function unexpected(source) {
-  source.error("unexpected \"" + source.peek_char() + "\" encountered (is something missing before this?)");
+function unexpected(lexer) {
+  lexer.error("unexpected \"" + lexer.peek_char() + "\" encountered (is something missing before this?)");
 }
 
 /**
 * A symbol
-* They can use reader.symbol in their syntax table to ensure the lexer
-* scans the specified token text correctly as a symbol
+* Use reader.symbol in their readtab to ensure the lexer
+* scans the specified token text correctly as a symbol.
 */
-function symbol(source, text) {
-  var token = source.next_token(text);
+function symbol(lexer, text) {
+  var token = lexer.next_token(text);
   return sl.atom(text, {token: token});
 }
 
@@ -1024,8 +1220,8 @@ function symbol(source, text) {
 *     exports["="] = reader.symbolAlias("set").
 */
 function symbolAlias(aliasFor) {
-  return function(source, text) {
-    var token = source.next_token(text);
+  return function(lexer, text) {
+    var token = lexer.next_token(text);
     return sl.atom(aliasFor, {token: token});
   }
 }
@@ -1040,16 +1236,15 @@ function symbolAlias(aliasFor) {
 *     options: {altprefix: 'arrowfn'}
 *   }
 *
-* note: you can pass and atom or symbol string, but if you pass a
-*   string you must provide the dialect as well.
+* @parm atomOrStr an atom or a symbol string
+* @param dialects the "stack" of current dialects
 */
-function getOperatorSpecFor(atomOrStr, dialect) {
+function getOperatorSpecFor(atomOrStr, dialects) {
 
   var opSpec;
 
   var atom = typeof atomOrStr !== 'string' ? atomOrStr : undefined;
   var str = typeof atomOrStr === 'string' ? atomOrStr : undefined;
-  dialect = dialect || (atom ? get_current_dialect(sl.sourceOf(atom)) : undefined);
   var sym = str || sl.valueOf(atom);
 
   // make sure and check the atom first - it takes precedence
@@ -1059,13 +1254,17 @@ function getOperatorSpecFor(atomOrStr, dialect) {
   }
 
   if(!opSpec) {
-    // no - was it "statically" marked i.e. by it's symbol?
-    if(dialect.syntax.__operatorsymbols.indexOf(sym) !== -1) {
-      var syntaxfn = (!Array.isArray(dialect.syntax.__operators[sym]) ?
-                          dialect.syntax.__operators[sym] :
-                          dialect.syntax.__operators[sym][0]);
-      opSpec = syntaxfn.operator;
-    }
+    // no - was it "statically" marked i.e. via it's symbol in a readtab?
+    dialects.find(function(dialect) {
+      if(dialect.readtab.__operatorsymbols.indexOf(sym) !== -1) {
+        var readfn = (!Array.isArray(dialect.readtab.__operators[sym]) ?
+                          dialect.readtab.__operators[sym] :
+                          dialect.readtab.__operators[sym][0]);
+        opSpec = readfn.operator;
+        return true;
+      }
+      return false;
+    });
   }
 
   if(opSpec &&
@@ -1077,7 +1276,7 @@ function getOperatorSpecFor(atomOrStr, dialect) {
       opSpec = reformedOpSpec;
     }
     else {
-      sl.sourceOf(atom).error("Malformed operator precedence specification for " + sym);
+      sl.lexerOf(atom).error("Malformed operator precedence specification for " + sym);
     }
   }
 
@@ -1085,60 +1284,103 @@ function getOperatorSpecFor(atomOrStr, dialect) {
 }
 
 /**
-* operator symbol which (along with it's arguments) gets transformed
-* in the forms tree after the reader has parsed the entire source.
+* In sugarlisp an "operator" refers to a symbol that can be used
+* infix/prefix/postfix without parentheses.
 *
-* Infix and unary operators are examples of these.
+* By configuring your readtab correctly using reader.x(),
+* reader.read() will  rearrange the expressions and return a
+* traditional (lispy prefix) s-expression list.
 *
-* readfn is the function which will do the transformation to the
-* forms tree.  It expects args like e.g.:
+* There are two ways to call reader.operator() - one way if the
+* operator only supports *one* of infix or prefix or postfix, e.g.
 *
-*    function //prefix(operatorform, opts) ...
+* reader.operator('postfix', 'unary', tradfncalltosexpr, 17.5, {altprefix: "fncall("})
+*
+* The other way takes a single object argument when an operator
+* can be used in more than one way, e.g. both prefix and postfix:
+*
+* reader.operator({
+*   prefix: reader.operator('prefix', 'unary', readparenthesizedlist, 1),
+*   postfix: reader.operator('postfix', 'binary', tradfncalltosexpr, 17.5)
+* });
+*
+* As you can see the properties of the object are simply reader.operator
+* calls in the "first way" described above.
+*
+* @param optypeOrObj = 'infix', 'prefix', or 'postfix', else an object as above
+* @param argtype = 'unary' (single argument) or 'binary' (two argument)
+* @param transformfn = function as described below
+* @param precedence = "priority" or "binding power" (higher numbers bind more tightly)
+* @param opts = options to pass to the transform function
+*
+* transformfn is the function which reads the necessary forms and
+* rearranges them into a lispy (prefix) list.  For infix a transformfn
+* expects args like e.g.:
+*
+*    function infix2prefix(lexer, opSpec, leftForm, operatorForm)
+*
+* Where the job of the transformfn is to read any rightForm(s) and
+* return a lispy list i.e. sl.list(operatorForm, leftForm, rightForm)
+*
+* A similar example for prefix is:
+*
+*    function prefixexpr(lexer, opSpec, operatorForm) {
+*
+* Here the job of the transformfn is to read the rightForm(s)
+* and likewise return a lispy list e.g. sl.list(operatorForm, rightForm)
+*
+* And finally for postfix an example is:
+*
+*    function postfixexpr(lexer, opSpec, leftForm, operatorForm)
+*
+* For a truly postfix operator in this case you might not need to read
+* any rightForm(s), but you will likely need to reverse the order to
+* produce a lispy (prefix) expression i.e. sl.list(operatorForm, leftForm)
 *
 * Precedence levels set the order these operations get transformed,
 * where lower levels are performed first (see
 *   e.g. https://www.wikiwand.com/en/Order_of_operations).
 *
 * The opts are optional - if given they allow you to specify
-* options at "setup time" that will be passed into the readfn
+* options at "setup time" that will be passed into the transformfn
 * later.
 */
-function operator(optype, argtype, readfn, precedence, opts) {
+function operator(optypeOrObj, argtype, transformfn, precedence, opts) {
   opts = opts || {};
   // the read function for all the operators just reads their symbol:
-  var syntaxfn = function(source, text) {
+  var readfn = function(lexer, text) {
     // operators e.g. "--" need to return from e.g. "--x" even
     // though the "-" has been defined as a non-terminating
     // character (maybe this can be simplified!!??)
-    var token = source.next_token(text, {matchPartial: true});
+    var token = lexer.next_token(text, {matchPartial: true});
     return sl.atom(text, {token: token});
   };
-  if(typeof optype === 'string') {
-    syntaxfn.operator = {
-      type: optype,
+  if(typeof optypeOrObj === 'string') {
+    readfn.operator = {
+      type: optypeOrObj,
       argtype: argtype,
-      read: readfn,
+      transform: transformfn,
       precedence: precedence,
       assoc: opts.assoc,
       options: opts
     };
   }
-  else if(typeof optype === 'object') {
+  else if(typeof optypeOrObj === 'object') {
     // this is an operator that is e.g. prefix and postfix,
-    var opSpecObj = optype;
-    syntaxfn.operator = {
-      infix: (optype.infix && optype.infix.operator ?
-                  optype.infix.operator :
-                  optype.infix),
-      prefix: (optype.prefix && optype.prefix.operator ?
-                  optype.prefix.operator :
-                  optype.prefix),
-      postfix: (optype.postfix && optype.postfix.operator ?
-                  optype.postfix.operator :
-                  optype.postfix)
+    var opSpecObj = optypeOrObj;
+    readfn.operator = {
+      infix: (optypeOrObj.infix && optypeOrObj.infix.operator ?
+                  optypeOrObj.infix.operator :
+                  optypeOrObj.infix),
+      prefix: (optypeOrObj.prefix && optypeOrObj.prefix.operator ?
+                  optypeOrObj.prefix.operator :
+                  optypeOrObj.prefix),
+      postfix: (optypeOrObj.postfix && optypeOrObj.postfix.operator ?
+                  optypeOrObj.postfix.operator :
+                  optypeOrObj.postfix)
     };
   }
-  return syntaxfn;
+  return readfn;
 }
 
 
@@ -1160,12 +1402,12 @@ function infix(precedence, opts) {
   return operator('infix', 'binary', infix2prefix, precedence, opts);
 }
 
-function infix2prefix(source, opSpec, leftForm, opForm) {
+function infix2prefix(lexer, opSpec, leftForm, opForm) {
   // To handle right-associative operators like "^", we allow a slightly
   // lower precedence when parsing the right-hand side. This will let an
   // operator with the same precedence appear on the right, which will then
   // take *this* operator's result as its left-hand argument.
-  var rightForm = read(source,
+  var rightForm = read(lexer,
       opSpec.precedence - (opSpec.assoc === "right" ? 1 : 0));
 
   if(opSpec.options.altprefix) {
@@ -1186,14 +1428,14 @@ function infix2prefix(source, opSpec, leftForm, opForm) {
 *
 * The opts.altprefix is optional (and normally not used), but it
 * allows the translated prefix form to use a different name than what the
-* source actually uses - e.g. "!x" could be translated as "(not x)".
+* lexer actually uses - e.g. "!x" could be translated as "(not x)".
 */
 function prefix(precedence, opts) {
   return operator('prefix', 'unary', prefix2expr, precedence, opts);
 }
 
-function prefix2expr(source, opSpec, opForm) {
-  var rightForm = read(source, opSpec.precedence);
+function prefix2expr(lexer, opSpec, opForm) {
+  var rightForm = read(lexer, opSpec.precedence);
 
   if(opSpec.options.altprefix) {
     opForm = utils.clone(opForm);
@@ -1220,7 +1462,7 @@ function postfix(precedence, opts) {
   return operator('postfix', 'unary', postfix2prefix, precedence, opts);
 }
 
-function postfix2prefix(source, opSpec, leftForm, opForm) {
+function postfix2prefix(lexer, opSpec, leftForm, opForm) {
 
   if(opSpec.options.altprefix) {
     opForm = utils.clone(opForm);
@@ -1236,7 +1478,7 @@ function postfix2prefix(source, opSpec, leftForm, opForm) {
 * options is an optional object containing:
 *   "alternate" is a name to look up in the dialect's "keywords"
 *       table, if it differs from the keyword they actually use
-*       in the source code.
+*       in the lexer code.
 *   "parenthesized" is meant for use with keywords such as
 *       if/while/switch/etc. which (in javascript and sugarscript
 *       syntax) *require* parens around the first expression
@@ -1251,7 +1493,7 @@ function postfix2prefix(source, opSpec, leftForm, opForm) {
 *       When used the bracketed expressions are "lifted" up i.e.
 *       spliced into the parent list of forms.
 *   "validate" an optional function to call after the forms are
-*       read.  The function receives the source, and the newly
+*       read.  The function receives the lexer, and the newly
 *       read list of forms.
 *
 * @returns a form list just the same as if they'd entered parens
@@ -1259,8 +1501,8 @@ function postfix2prefix(source, opSpec, leftForm, opForm) {
 */
 function parenfree(arity, options) {
   options = options || {};
-  return function(source) {
-    var token = source.next_token();
+  return function(lexer) {
+    var token = lexer.next_token();
     var fnName = options.alternate || token.text;
     var formlist = sl.list(fnName);
     formlist.setOpening(token);
@@ -1269,18 +1511,18 @@ function parenfree(arity, options) {
       var nextform;
       if(options.parenthesized && options.parenthesized === formlist.length) {
         // "wrapped" here because something like (true) returns simply "true"
-        nextform = read_wrapped_delimited_list(source, '(', ')');
+        nextform = read_wrapped_delimited_list(lexer, '(', ')');
       }
       // note brackets are *optional* if there's a single expression body
       else if(options.bracketed && options.bracketed === formlist.length
-        && source.on('{'))
+        && lexer.on('{'))
       {
-        nextform = read_delimited_list(source, '{', '}');
+        nextform = read_delimited_list(lexer, '{', '}');
         formlist.pushFromArray(nextform);
         nextform = undefined;  // we've added the forms so no need to below
       }
       else {
-        nextform = read(source);
+        nextform = read(lexer);
       }
 
       // some directives" don't return an actual form:
@@ -1290,7 +1532,7 @@ function parenfree(arity, options) {
     }
 
     if(options.validate) {
-      options.validate(source, formlist);
+      options.validate(lexer, formlist);
     }
 
     // this list was read paren free!
@@ -1305,101 +1547,6 @@ function parenfree(arity, options) {
 };
 
 /**
-* read a list of atoms and/or other lists surrounded by delimiters (), [], etc.
-* start is the expected opening delimiter as a string (or an existing start token
-* if the opening delimiter has already been read)
-* end is the expected end delimiter as a string
-* initial is an optional array containing values prepopulated in the list
-* separatorRE is an optional RE for "separators" to be skipped e.g. /,/
-*/
-function read_delimited_list(source, start, end, initial, separatorRE) {
-    start = start || '(';
-    end = end || ')';
-    separatorRE = separatorRE || /,+/g;
-    var startToken = (start && typeof start === 'string' ? source.next_token(start) : start);
-
-    var list = (initial && sl.isList(initial) ? initial : sl.listFromArray(initial || []));
-    list.setOpening(startToken);
-
-    // starting a new list
-    delete source.lastReadFormInList;
-    var token;
-    while (!source.eos() && (token = source.peek_token()) && token && token.text !== end) {
-      var nextform = read(source);
-
-      // some "directives" don't return an actual form:
-      if(!isignorableform(nextform)) {
-        list.push(nextform);
-      }
-
-      // if they gave a separator (e.g. commas)
-      if(separatorRE && source.on(separatorRE)) {
-        source.skip_text(separatorRE); // just skip it
-      }
-    }
-    if (!token || source.eos()) {
-        source.error("Missing \"" + end + "\" ?  (expected \"" + end + "\", got EOF)", startToken);
-    }
-    var endToken = source.next_token(end); // skip the end token
-    list.setClosing(endToken);
-
-// IF THIS IS HERE IT HAS TO BE SMARTER - IT WAS ELIMINATING THE TOP LEVEL PAREN wrapper
-// (AROUND THE WHOLE FILE) AND CAUSING PROBLEMS
-// WOULDNT IT ALSO ELIMINATE A NO-ARG CALL?  SOMETHING LIKE (obj.run) ?
-    // we can get extra parens when e.g. the user used parens around
-    // an infix expression (which the reader reads as a nested list)
-    // if(list.length === 1 && sl.isList(list[0])) {
-    //   list = list[0];
-    // }
-
-    // in a lispy file they use parens whereas paren-free in a scripty file
-    if(list.length === 1 && sl.isList(list[0])
-      && list[0].__parenoptional && source.fileext === 'lispy')
-    {
-      // so here we have to *remove* what's otherwise *extra* parens:
-      list = list[0];
-    }
-
-    source.lastReadList = list;
-
-    return list;
-}
-
-/**
-* in javascript certain parens e.g. around conditions for "if" and
-* "while" etc. are *required* as part of the grammar.  This function
-* accommodates that by "reaching inside" those parens when they wouldn't
-* (in a lispy world) have been needed, or otherwise returns the
-* s-expression normally.  Consider e.g.:
-*   if(true) {...}
-* versus
-*   if(x > y) {...}
-* in the first case we simply return the atom true, whereas in the second
-* case the list (> x y).
-*/
-function read_wrapped_delimited_list(source, start, end, initial, separatorRE) {
-
-  var list = read_delimited_list(source, start, end, initial, separatorRE);
-  if(list.length === 1) // DEL? &&
-// DEL?    (sl.isList(list[0]) || sl.typeOf(list[0]) === 'boolean'))
-  {
-      // there's an extra nesting level than needed:
-      list = list[0];
-  }
-  return list;
-}
-
-/**
-* scan some delimited text and get it as a string atom
-* source.options.omitDelimiters = whether to include the include the delimiters or not
-*/
-function read_delimited_text(source, start, end, options) {
-  options = options || {includeDelimiters: true};
-  var delimited = source.next_delimited_token(start, end, options);
-  return sl.atom(delimited);
-}
-
-/**
 * Reader function to translate binary infix (e.g. "a + b") to prefix (i.e. "+ a b")
 * note:  this depends on "look back" to the last form the reader had read
 *  within the current list being read.  Note that we may be called with
@@ -1409,12 +1556,12 @@ function read_delimited_text(source, start, end, options) {
 /*
 DELETE?
 function infixtoaltprefix(altfname) {
-  return function(source, text) {
+  return function(lexer, text) {
 
-    var token = source.create_token(text);
-    source.skip_text(text);
+    var token = lexer.create_token(text);
+    lexer.skip_text(text);
 
-    if(!source.lastReadFormInList) {
+    if(!lexer.lastReadFormInList) {
       // already in prefix position since it's first in the list!
       return sl.atom(text, {token: token});
     }
@@ -1423,7 +1570,7 @@ function infixtoaltprefix(altfname) {
     // pull in the prior form (which has already been read)
     // we don't *delete* it from parent - that would leave a gap in the array indices!
     // instead we *replace* the prior form with our new binary operation form
-    var priorform = source.lastReadFormInList;
+    var priorform = lexer.lastReadFormInList;
     var priorformPos;
     var priorParent = priorform.parent;
 
@@ -1435,13 +1582,13 @@ function infixtoaltprefix(altfname) {
     if(priorParent) {
       priorformPos = priorParent.indexOf(priorform);
       if(priorformPos === -1) {
-        source.error("could not convert infix \"" + text + "\" to prefix (invalid prior form)");
+        lexer.error("could not convert infix \"" + text + "\" to prefix (invalid prior form)");
       }
 
       formlist.push(priorform);  // note this changes the parent to our new list
 
-      while(!source.eos() && formlist.length < 3) {
-        var nextform = read(source);
+      while(!lexer.eos() && formlist.length < 3) {
+        var nextform = read(lexer);
         // some directives" don't return an actual form:
         if(!isignorableform(nextform)) {
           formlist.push(nextform);
@@ -1453,7 +1600,7 @@ function infixtoaltprefix(altfname) {
       priorParent.splice(priorformPos,1);
     }
     else {
-      source.error("could not convert infix \"" + text + "\" to prefix (parent form is required)");
+      lexer.error("could not convert infix \"" + text + "\" to prefix (parent form is required)");
     }
     trace("infixtoprefix returning: " + formlist.toJSON());
     return formlist;
@@ -1470,7 +1617,7 @@ function infixtoaltprefix(altfname) {
 *   as good - but don't.  Returning undefined is considered
 *   an error (since it's so easy to do on accident).
 */
-var ignorable_form_key = "___%%LSFORM_IGNORE%%___";
+var ignorable_form_key = "___%%SLFORM_IGNORE%%___";
 var ignorable_form = sl.atom(ignorable_form_key);
 function isignorableform(form) {
   return form && sl.valueOf(form) === ignorable_form_key;
@@ -1494,7 +1641,7 @@ function passthru_prelude(tokenOrForm) {
 
 /**
 * Read functions that fail to make sense of their input
-* can return "reader.retry_match" to indicate that they
+* can return "reader.retry" to indicate that they
 * would like the reader to try a subsequent (lower
 * priority) match.
 *
@@ -1506,10 +1653,10 @@ function passthru_prelude(tokenOrForm) {
 *   as good - but don't.  Returning undefined is considered
 *   an error (mainly because it's so easy to do on accident).
 */
-var retry_match_key = "___%%LSRETRY_MATCH%%___";
-var retry_match = sl.atom(retry_match_key);
-function isretryablematch(form) {
-  return form && sl.valueOf(form) === retry_match_key;
+var retry_key = "___%%SLRETRY%%___";
+var retry = sl.atom(retry_key);
+function isretry(form) {
+  return form && sl.valueOf(form) === retry_key;
 }
 
 /**
@@ -1524,12 +1671,12 @@ function isretryablematch(form) {
 * dialect is the form's closest surrounding dialect
 *
 * note: this is a depth first tree walk - this corresponds to the natural
-*   left-to-right/top-to-bottom order of the original source
+*   left-to-right/top-to-bottom order of the original lexer
 */
 function finddeep(forms, predicatefn, pos, container, parentDialect) {
 
   pos = pos || 0;
-  parentDialect = parentDialect || get_current_dialect(sl.sourceOf(forms));
+  parentDialect = parentDialect || get_current_dialect(sl.lexerOf(forms));
 
   if(Array.isArray(forms)) {
     for (var i = 0, value; i < forms.length; i++) {
@@ -1558,17 +1705,19 @@ function finddeep(forms, predicatefn, pos, container, parentDialect) {
 // reading forms
 exports.read = read;
 exports.read_from_source = read_from_source;
+exports.initLexerFor = initLexerFor;
+exports.nonlocal_tokens = nonlocal_tokens;
 exports.read_include_file = read_include_file;
 exports.read_delimited_list = read_delimited_list;
 exports.read_wrapped_delimited_list = read_wrapped_delimited_list;
 exports.read_delimited_text = read_delimited_text;
+exports.invoke_readfn_overridden_by = invoke_readfn_overridden_by;
 
 // dialects
-exports.get_current_dialect = get_current_dialect;
-exports.get_closest_scoped_dialect_for = get_closest_scoped_dialect_for;
+//OLD DELETE exports.get_current_dialect = get_current_dialect;
+//OLD DELETE exports.get_closest_scoped_dialect_for = get_closest_scoped_dialect_for;
 
 // other
-exports.get_syntaxtable_entry = get_syntaxtable_entry;
 exports.unexpected = unexpected;
 exports.symbol = symbol;
 exports.symbolAlias = symbolAlias;
@@ -1587,9 +1736,10 @@ exports.registerDynamicTransform = registerDynamicTransform;
 exports.ignorable_form = ignorable_form;
 exports.isignorableform = isignorableform;
 exports.passthru_prelude = passthru_prelude;
-exports.retry_match = retry_match;
-exports.isretryablematch = isretryablematch;
+exports.retry = retry;
+exports.isretry = isretry;
 exports.use_dialect = use_dialect;
+exports.unuse_dialect = unuse_dialect;
 exports.gen_var_name = gen_var_name;
 exports.parenfree = parenfree;
 exports.finddeep = finddeep;

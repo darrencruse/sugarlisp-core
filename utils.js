@@ -44,6 +44,75 @@ if (!Array.prototype.find) {
   }
 }
 
+if (!Array.prototype.contains) {
+
+  function contains(val) {
+    return this.indexOf(val) !== -1;
+  };
+
+  if (Object.defineProperty) {
+    try {
+      Object.defineProperty(Array.prototype, 'contains', {
+        value: contains, configurable: true, enumerable: false, writable: true
+      });
+    } catch(e) {}
+  }
+
+  if (!Array.prototype.contains) {
+    Array.prototype.contains = contains;
+  }
+}
+
+if (!Array.prototype.findIndex) {
+
+  function findIndex(predicate) {
+    var list = Object(this);
+    var length = list.length < 0 ? 0 : list.length >>> 0; // ES.ToUint32;
+    if (length === 0) return -1;
+    if (typeof predicate !== 'function' || Object.prototype.toString.call(predicate) !== '[object Function]') {
+      throw new TypeError('Array#findIndex: predicate must be a function');
+    }
+    var thisArg = arguments[1];
+    for (var i = 0, value; i < length; i++) {
+      value = list[i];
+      if (predicate.call(thisArg, value, i, list)) return i;
+    }
+    return -1;
+  };
+
+  if (Object.defineProperty) {
+    try {
+      Object.defineProperty(Array.prototype, 'findIndex', {
+        value: findIndex, configurable: true, enumerable: false, writable: true
+      });
+    } catch(e) {}
+  }
+
+  if (!Array.prototype.findIndex) {
+    Array.prototype.findIndex = findIndex;
+  }
+}
+
+if (!Array.prototype.contains) {
+
+  function contains(val) {
+    return this.indexOf(val) !== -1;
+  };
+
+  if (Object.defineProperty) {
+    try {
+      Object.defineProperty(Array.prototype, 'contains', {
+        value: contains, configurable: true, enumerable: false, writable: true
+      });
+    } catch(e) {}
+  }
+
+  if (!Array.prototype.contains) {
+    Array.prototype.contains = contains;
+  }
+}
+
+
 // THIS MERGE STUFF NEEDS TO BE MERGED - ALL THREE SHOULD BE SHORT AND USE
 // A COMMON HELPER
 
@@ -100,24 +169,6 @@ exports.mergeInto = function(){
 }
 
 /**
-* Fill undefined properties in the first argument from the other arguments
-* (in the order of the arguments, earlier properties win)
-*/
-exports.mergeUndefined = function(){
-  if(!arguments.length || arguments.length === 0)
-    return {};
-  var out = arguments[0];
-  for(var i=1; i<arguments.length; i++) {
-    for(var key in arguments[i]) {
-      if (arguments[i].hasOwnProperty(key) && typeof out[key] === 'undefined') {
-        out[key] = arguments[i][key];
-      }
-    }
-  }
-  return out;
-}
-
-/**
 * Set properties in the first argument from the other arguments
 * (in the order of the arguments, later properties win)
 */
@@ -128,6 +179,24 @@ exports.mergeOnto = function(){
   for(var i=1; i<arguments.length; i++) {
     for(var key in arguments[i]) {
       if (arguments[i].hasOwnProperty(key)) {
+        out[key] = arguments[i][key];
+      }
+    }
+  }
+  return out;
+}
+
+/**
+* Fill undefined properties in the first argument from the other arguments
+* (in the order of the arguments, earlier properties win)
+*/
+exports.mergeUndefined = function(){
+  if(!arguments.length || arguments.length === 0)
+    return {};
+  var out = arguments[0];
+  for(var i=1; i<arguments.length; i++) {
+    for(var key in arguments[i]) {
+      if (arguments[i].hasOwnProperty(key) && typeof out[key] === 'undefined') {
         out[key] = arguments[i][key];
       }
     }

@@ -5,7 +5,7 @@
 
 var macros = require('./macro-expander'),
     sl = require('./sl-types'),
-    debug = require('debug')('sugarlisp:core:keywords:info'),
+    debug = require('debug')('sugarlisp:core:keywords:debug'),
     trace = require('debug')('sugarlisp:core:keywords:trace');
     match = require('sugarlisp-match/pattern-match');
 
@@ -50,23 +50,23 @@ exports["macro"] = function(forms) {
     // macro body
     mBody = forms.slice(pos)
 
-    var transpiled = sl.transpiled();
-    transpiled.push(["function(forms) {\n"]);
-    transpiled.push(["  var macrodef = ", sl.pprintJSON(forms.toJSON(), {}, 9), ";\n"]);
-    transpiled.push( "  return this.macroexpand(forms, macrodef);\n");
-    transpiled.push("}");
+    var generated = sl.generated();
+    generated.push(["function(forms) {\n"]);
+    generated.push(["  var macrodef = ", sl.pprintJSON(forms.toJSON(), {}, 9), ";\n"]);
+    generated.push( "  return this.macroexpand(forms, macrodef);\n");
+    generated.push("}");
     //this.noSemiColon = true
 
     // named macros are available immediately in the file they're defined in:
     if(mName) {
       // this tells the transpiler to eval this code and register it as a keyword
-      transpiled.__macrofn = true;
+      generated.__macrofn = true;
     }
 
     // an anonymous macro is only useful when compiling macros to
     // to code - return the code for this macro function so it can be
     // written to the output file.
-    return transpiled
+    return generated
 }
 
 function inlineJs(forms) {
@@ -85,9 +85,9 @@ function inlineJs(forms) {
 // ALSO NOTE - YOU'RE TALKING ABOUT TEMPLATE STRINGS HERE IN JS - BUT
 // THIS IS CORE AND TEMPLATE STRINGS LIVE IN PLUS!!
     var code = (sl.typeOf(forms[1]) === 'string' ?
-                sl.transpiled(sl.valueOfStr(forms[1])) :
+                sl.generated(sl.valueOfStr(forms[1])) :
                 sl.typeOf(forms[1]) === 'symbol' ?
-                  sl.transpiled(sl.valueOf(forms[1])) :
+                  sl.generated(sl.valueOf(forms[1])) :
                   forms[1]);
 
     // leave these decisions in the hands of the inlined javascript:
@@ -120,7 +120,7 @@ exports["nop"] = function(forms) {
     // the front of an expression to disable it
     this.noSemiColon = true;
     this.noNewline = true;
-    return sl.transpiled();
+    return sl.generated();
 }
 
 /**
@@ -160,7 +160,7 @@ function handleSet(setFnName) {
         ],
         function(vars) {
           return (function(key, arrayname, valexpr) {
-            return sl.transpiled([
+            return sl.generated([
               this.x(arrayname), "[", this.x(key), "] = ", this.x(valexpr)
             ]);
           }).call(this, vars["key"], vars["arrayname"], vars["valexpr"]);
@@ -174,7 +174,7 @@ function handleSet(setFnName) {
         ],
         function(vars) {
           return (function(varexpr, valexpr) {
-            return sl.transpiled([
+            return sl.generated([
               this.x(varexpr), " = ", this.x(valexpr)
             ]);
           }).call(this, vars["varexpr"], vars["valexpr"]);

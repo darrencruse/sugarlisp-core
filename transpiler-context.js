@@ -21,16 +21,26 @@
 * module to see the current context.
 */
 
+// note: reliably determining where we're running is complicated
+//   because the Atom editor appears as both node *and* a browser!
+var path;
+try {
+  path = require('path');
+}
+catch(e) {
+  debug('failed to require "path" (we assume we\'re running in a browser)');
+}
+
 module.exports = {
   filename: undefined,
   fileext: undefined,
+  lexer: undefined,
   options: { transpile: {} },
-  source: undefined,
   indentSize: 2,
   indent: 6,
-  margin: function() { return " ".repeat(this.indent); },
+  margin: function() { return " ".repeat(this.indent > 0 ? this.index : 0); },
   tabin: function(times) { times = times || 1; this.indent += (this.indentSize * times); },
-  tabout: function(times) { times = times || 1; this.indent -= (this.indentSize * times); },
+  tabout: function(times) { times = times || 1; this.indent -= (this.indentSize * times); this.indent = this.indent > 0 ? this.indent : 0; },
   noSemiColon: false,
   noNewline: false,
   noReturn: false,
@@ -41,5 +51,16 @@ module.exports = {
                 },
   mutators: ["set","++","post++","--","post--","+=","-=","*=","/=","%="],
   beforeCode: [],
-  afterCode: []
+  afterCode: [],
+  repljsenv: {},
+  initialize: function (filename, options) {
+    // make options, filename, etc. visible to the various handler functions:
+    var ctx = module.exports;
+    ctx.options = { transpile: (options || {}) };
+    ctx.options.transpile.on = (typeof window === 'undefined' ? "server" : "browser");
+    ctx.repljsenv.transpile = ctx.options.transpile;
+    ctx.filename = filename;
+    ctx.fileext = path.extname(filename);
+    ctx.indent = -ctx.indentSize;
+  }
 };
