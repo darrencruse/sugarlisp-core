@@ -313,6 +313,31 @@ function listFromArray(arr) {
   };
 
   /**
+  * For "object" or "attr" lists, this returns the js object with properties and
+  * values equivalent to the lispy (object..) or (attr..) object.  For all other
+  * lists it returns the same as toJSON (above).
+  */
+  thelist.toObject = function() {
+    var obj;
+    var jsonsexpr = toJSON(this);
+    if(Array.isArray(jsonsexpr) && jsonsexpr.length > 0 &&
+      (jsonsexpr[0] === 'object' || jsonsexpr[0] === 'attr'))
+    {
+      obj = {};
+      for (var i = 1; i < jsonsexpr.length; i = i + 2) {
+        // toJSON has already made keys into strings and values into primitives
+        obj[jsonsexpr[i]] = jsonsexpr[i+1];
+      }
+    }
+    else {
+      // it wasn't an object/attr s-expression just give back our list json
+      obj = jsonsexpr;
+    }
+
+    return obj;
+  };
+
+  /**
   * Set parents all the way down this form tree.
   */
   thelist.setParents = function(parent) {
@@ -411,6 +436,63 @@ function finddeep(forms, predicatefn, pos) {
   return undefined;
 }
 
+//// javascript objects in s-expressions
+//// (in addition to lists, allow js objects in s-expressions)
+//// this was an experiment initially meant for use representing
+//// html attributes as js objects directly in the s-expression
+//// representation of html.  as it turns out we are able to 
+//// provide properties directly on the (object...) or (attr...)
+//// lists, and we also provide a toObject() call for converting
+//// such lists to actual js objects - so this is not being used 
+//// for html after all.  also note this has not been heavily 
+//// tested - it might get deleted if a strong need for it isnt 
+//// found (it fights against the elegant uniformity of s-exprs).
+
+/**
+* Create a sugarlisp object.
+* this really is a normal js object except we've added ways to preserve
+* original source line/col info for the sake of source maps.
+*
+* Otherwise we expect keys added to the object are normal (string) keys,
+* but (as created by the reader) values for those keys are "atoms" (again
+* this is mainly for the benefit of retaining the line/col "meta data").
+*/
+function object(baseObj) {
+  baseObj = baseObj || {};
+  var metaObj = baseObj.__objmeta || {};
+  // we define __objmeta' with defineProperty so that for/in does not return it:
+  Object.defineProperty(baseObj, '__objmeta', {value: metaObj});
+
+  /**
+  * Set the opening line/col for the object from the opening token (e.g. "(")
+  * or current position in the Source
+  */
+  function setOpening(tokenOrLexer) {
+    metaObj.line = tokenOrLexer.line;
+    metaObj.col = tokenOrLexer.col;
+
+    // whitespace or comments that preceded the opening token
+    // (e.g. on a () list whitespace or comments that preceded "(")
+    metaObj.prelude = tokenOrLexer.prelude;
+  }
+  Object.defineProperty(baseObj, 'setOpening', {value: setOpening});
+
+  /**
+  * Set the closing line/col for a list from the closing token (e.g. ")")
+  */
+  function setClosing(tokenOrLexer) {
+    metaObj.endLine = tokenOrLexer.line;
+    metaObj.endCol = tokenOrLexer.col;
+
+    // whitespace or comments that preceded the end token
+    // (e.g. on a () list whitespace or comments that preceded ")")
+    metaObj.endPrelude = tokenOrLexer.prelude;
+  }
+  Object.defineProperty(baseObj, 'setClosing', {value: setClosing});
+
+  return baseObj;
+}
+
 //// JSON
 
 /**
@@ -477,6 +559,7 @@ function pprintJSON(formJson, opts, indentLevel, priorNodeStr) {
   opts.rbracket = opts.rbracket || "]";
   opts.separator = opts.separator || ", ";
   indentLevel = indentLevel || 0;
+  var nl = opts.oneLine ? " " : "\n";
   var str = ""
 
   function indentToSpaces(indentLevel) {
@@ -490,19 +573,34 @@ function pprintJSON(formJson, opts, indentLevel, priorNodeStr) {
       // (the length check might adversely effect formatting normal code not sure yet )
       if((priorNodeStr !== '"function"' && priorNodeStr !== 'function') &&
           formJson.length > 0 && formJson[0] !== "attr") {
-        str += (priorNodeStr ? "\n" : "") // omit the unecessary *first* "\n"
+        str += (priorNodeStr ? nl : "") // omit the unecessary *first* "\n"
         str += (priorNodeStr && numSpaces > 0 ? " ".repeat(numSpaces) : "")
       }
       str += opts.lbracket
     }
 
-    if(formJson[0] === "object") {
-      // pretty print the key/value pairs of an object
-      str += pprintJSON(formJson[0], opts) + opts.separator + "\n";
-      for(var i=1; i<formJson.length;i+=2) {
-         str += (numSpaces+1 > 0 ? " ".repeat(indentToSpaces(indentLevel+1)) : "") +
+    if(formJson[0] === "object" || formJson[0] === "attr") {
+      if(opts.attrsAsJson || opts.objectsAsJson) {
+        // pretty print the key/value pairs of an object/attr as a js object:
+        str += "{";
+        for(var i=1; i<formJson.length;i+=2) {
+          if(i === 1) { str += nl; }
+          var propNameStr = pprintJSON(formJson[i], opts);
+          propNameStr = ((propNameStr.indexOf("-") !== -1) ? '"' + propNameStr + '"' : propNameStr);
+          str += (numSpaces+1 > 0 ? " ".repeat(indentToSpaces(indentLevel+1)) : "") +
+                  propNameStr + ": " +
+                  pprintJSON(formJson[i+1], opts, indentLevel + 2, formJson[i]) + (i+2 < formJson.length ? opts.separator : "") + nl;
+        }
+        str += "}";
+      }
+      else {
+        // pretty print the key/value pairs of an object/attr as an s-expr list
+        str += pprintJSON(formJson[0], opts) + opts.separator + nl;
+        for(var i=1; i<formJson.length;i+=2) {
+          str += (numSpaces+1 > 0 ? " ".repeat(indentToSpaces(indentLevel+1)) : "") +
                  pprintJSON(formJson[i], opts) + opts.separator +
-                 pprintJSON(formJson[i+1], opts, indentLevel + 2, formJson[i]) + (i+2 < formJson.length ? opts.separator : "") + "\n";
+                 pprintJSON(formJson[i+1], opts, indentLevel + 2, formJson[i]) + (i+2 < formJson.length ? opts.separator : "") + nl;
+        }
       }
     }
     else {
@@ -659,6 +757,13 @@ function isAtom(form, wrapped) {
 }
 
 /**
+ * Returns if the specified form is an object
+ */
+function isObject(form) {
+  return (form && typeof form === 'object' && !Array.isArray(form));
+}
+
+/**
  * Returns if the specified value is a token
  * note the we "promote" tokens to atoms, so this means
  * most tokens are also atoms.
@@ -699,6 +804,9 @@ function typeOf(form) {
       }
     }
     else typename = "null";
+  }
+  else if(isObject(form)) {
+    typename = "object";
   }
   return typename;
 }
@@ -815,6 +923,7 @@ module.exports = {
   toString: toString,
   list: list,
   listFromArray: listFromArray,
+  object: object,
   finddeep: finddeep,
   fromJSON: fromJSON,
   toJSON: toJSON,

@@ -14,11 +14,11 @@ module.exports = {
 
   // these for people who like lispy syntax:
   slon: ['plus'],
-  slml: ['plus', 'html'],
+  slml: ['plus', 'htmlreader', 'html'],
   slss: ['plus', 'css'],
-  
+
   // and these for people who like the sugarscript syntax:
   sson: ['sugarscript'],
-  ssml: ['sugarscript', 'html'],
+  ssml: ['sugarscript', 'htmlreader', 'html'],
   ssss: ['sugarscript', 'css']
 };

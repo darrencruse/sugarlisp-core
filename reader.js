@@ -132,7 +132,7 @@ function initLexerFor(codestr, filenameOrLexer, options) {
   var fileext = utils.getFileExt(filename, "slisp");
 
   // filetypes defines the dialect's this dialect builds upon:
-  var baseDialectNames = filetypes[fileext];
+  var baseDialectNames = options.baseDialectNames || filetypes[fileext];
   if(!baseDialectNames) {
     throw new Error(filename + " is not a recognized sugarlisp file type.");
   }
@@ -171,11 +171,12 @@ function initLexerFor(codestr, filenameOrLexer, options) {
 *  approach will fail (in which case this option is better than nothing).
 * (presumably for debugging but who knows...)
 */
-function nonlocal_tokens(codestr, filename) {
+function nonlocal_tokens(codestr, filename, options) {
+  options = options || {};
 
   // get the base dialects for this file type:
   var fileext = utils.getFileExt(filename, "slisp");
-  var baseDialectNames = filetypes[fileext];
+  baseDialectNames = options.baseDialectNames || filetypes[fileext];
   if(!baseDialectNames) {
     throw new Error(filename + " is not a recognized sugarlisp file type.");
   }
