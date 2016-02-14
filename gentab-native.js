@@ -10,7 +10,7 @@ var reader = require('sugarlisp-core/reader'),
 
 exports["var"] = function(forms) {
     if (forms.length < 2) {
-      forms.error("missing variable name for var?");
+      forms.error("missing variable name for " + sl.valueOf(forms[0]) + "?");
     }
     if (forms.length > 3) {
         this.indent += this.indentSize
@@ -39,6 +39,11 @@ exports["var"] = function(forms) {
 
     return generated;
 }
+
+// we support the es6 keywords "let" and "const"
+// (but we simply output "var" in the generated code)
+exports["let"] = exports["var"];
+exports["const"] = exports["var"];
 
 exports["return"] = function(forms) {
     var generated = sl.generated("return");
