@@ -21,6 +21,7 @@ require("sugarlisp-core");
 require("sugarlisp-plus");
 require("sugarlisp-match");
 require("sugarlisp-match/matchexpr");
+require("sugarlisp-htmlreader");
 require("sugarlisp-html");
 require("sugarlisp-css");
 require("sugarlisp-async");
