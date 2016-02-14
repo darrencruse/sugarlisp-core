@@ -38,7 +38,7 @@ module.exports = {
   options: { transpile: {} },
   indentSize: 2,
   indent: 6,
-  margin: function() { return " ".repeat(this.indent > 0 ? this.index : 0); },
+  margin: function() { return " ".repeat(this.indent > 0 ? this.indent : 0); },
   tabin: function(times) { times = times || 1; this.indent += (this.indentSize * times); },
   tabout: function(times) { times = times || 1; this.indent -= (this.indentSize * times); this.indent = this.indent > 0 ? this.indent : 0; },
   noSemiColon: false,
